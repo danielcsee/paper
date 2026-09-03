@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -21,6 +22,16 @@ class Settings(BaseSettings):
     # image and the host process read their addresses from one place.
     database_url: str = "postgresql://litgraph:litgraph@localhost:5432/litgraph"
     neo4j_uri: str = "bolt://localhost:7687"
+
+    # --- NCBI ---
+    pubtator_base_url: str = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
+    pmc_s3_base_url: str = "https://pmc-oa-opendata.s3.amazonaws.com"
+    #: Root for downloaded articles; each gets a <papers_dir>/<PMCID>/ directory.
+    papers_dir: Path = REPO_ROOT / "papers" / "pmc_subset"
+    http_timeout_seconds: float = 60.0
+    #: NCBI asks that clients identify a contact. Unset by default — nothing is
+    #: sent to NCBI unless you put an address here yourself.
+    ncbi_contact_email: Optional[str] = None
 
 
 @lru_cache
