@@ -1,0 +1,15 @@
+# python
+.venv/
+__pycache__/
+*.py[cod]
+
+# node
+node_modules/
+ui/dist/
+
+# env
+.env
+
+# data (large, downloaded)
+PMC-ids.csv
+papers/

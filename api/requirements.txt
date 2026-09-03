@@ -1,0 +1,5 @@
+fastapi>=0.115,<0.120
+uvicorn[standard]>=0.30,<0.36
+pydantic-settings>=2.4,<3
+# Declared now so the ingestion pipeline has a home; no tasks are wired up yet.
+celery>=5.4,<6

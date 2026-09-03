@@ -1,0 +1,9 @@
+.git
+.venv
+**/node_modules
+ui/dist
+papers
+PMC-ids.csv
+__pycache__
+*.pyc
+.env

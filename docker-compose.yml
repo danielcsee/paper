@@ -1,0 +1,66 @@
+# Datastores only. The API and UI run on the host in dev (scripts/dev.sh);
+# the `api` service below is for running the built image instead.
+services:
+  postgres:
+    # pgvector image so the extension is available when we add embeddings.
+    image: pgvector/pgvector:pg17
+    container_name: litgraph-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-litgraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litgraph}
+      POSTGRES_DB: ${POSTGRES_DB:-litgraph}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-litgraph} -d ${POSTGRES_DB:-litgraph}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: litgraph-neo4j
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/litgraph_dev_pw}
+      # GDS supplies PageRank / personalized PageRank for the ranking layer.
+      NEO4J_PLUGINS: '["graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: gds.*
+      NEO4J_dbms_security_procedures_allowlist: gds.*
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # Not started by dev.sh. Use `docker compose --profile app up --build api`
+  # to run the packaged image (FastAPI serving the compiled UI bundle).
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: litgraph-api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-litgraph}:${POSTGRES_PASSWORD:-litgraph}@postgres:5432/${POSTGRES_DB:-litgraph}
+      NEO4J_URI: bolt://neo4j:7687
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
