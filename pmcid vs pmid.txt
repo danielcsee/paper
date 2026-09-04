@@ -1,0 +1,102 @@
+PMID vs PMCID — which one do we need?
+=====================================
+Verified against the live NCBI services on 2026-09-03.
+
+
+The short version
+-----------------
+The two ids do different jobs, and they are independent:
+
+  PMID   is the ACCESS KEY.        PubTator's export endpoint accepts nothing else.
+  PMCID  means FULL TEXT EXISTS.   Full text lives in PMC; a PubMed-only record has none.
+
+To get a structured full paper you need BOTH facts to be true — but you only
+ever SEND the PMID. The PMCID is never passed to the fetch endpoint; it just
+determines whether full text comes back.
+
+
+Two services, two keys
+----------------------
+  /pb/paper     -> PubTator3  publications/export/biocjson?pmids=<id>&full=true
+                  Requires a PMID. Returns structured passages, annotations,
+                  relations, references.
+                  Passing pmcids= alone is rejected:
+                      HTTP 400  ["pmids is a mandatory parameter."]
+
+  /pb/download  -> PMC Open Access S3 bucket, keyed on PMCID.
+                  Returns raw files: JATS XML, plain text, PDF, media.
+
+
+The three cases
+---------------
+                          /pb/paper (structured)        /pb/download (files)
+  P1  pmid + pmcid    ->  YES, full text                YES
+  P2  pmid, no pmcid  ->  YES, but ABSTRACT ONLY        NO  (not in PMC)
+  P3  no pmid, pmcid  ->  NO  (no PMID to key on)       YES, full JATS XML
+
+All three can be fetched *something*. Only P1 yields structured full text.
+
+
+Evidence
+--------
+One export call, 5 PMIDs, all with full=true:
+
+      pmid        pmcid   passages  result
+  11250747     PMC13901         40  FULL TEXT  (ABSTRACT, CONCL, FIG, INTRO,
+                                                METHODS, REF, RESULTS, TABLE, TITLE)
+  11967146    PMC107028         70  FULL TEXT  (ABSTRACT, DISCUSS, INTRO,
+                                                METHODS, REF, RESULTS, SUPPL, TABLE, TITLE)
+  36323568         None          2  abstract only, no section_type
+  38265844         None          2  abstract only, no section_type
+  38914220         None          2  abstract only, no section_type
+
+Note the 3 abstract-only records were requested WITH full=true. The missing
+section_type means "no full text exists", not "you didn't ask for it".
+
+P3 confirmed with PMC117244, from our own corpus:
+  - its JATS carries pmcid/pmcaid/pmcaiid but no pmid
+  - PMC S3 metadata: pmid = None, is_pmc_openaccess = True, xml_url present
+  - so the full text plainly exists, but PubTator has never seen the paper,
+    because PubTator indexes PubMed and this paper is not in PubMed.
+    resolve_pmid() raises 404 with that reason.
+
+
+How often each case occurs
+--------------------------
+From search (3 queries, 40 results sampled):
+  - pmid present:   40/40  (100%)  -> PMID is always available from search
+  - pmcid present:  30/40  ( 75%)  -> ~25% of search hits are abstract-only
+
+From our local corpus (papers/pmc_subset, 888 articles):
+  - P3 (no PMID):    5/888 (0.6%)
+
+P3 therefore never arises from the search flow. It only appears when starting
+from a PMCID, e.g. walking the local corpus.
+
+
+Practical guidance
+------------------
+1. Pass PMID to /pb/paper whenever you have it. Search always gives you one,
+   and it skips the PMCID->PMID resolution request entirely.
+
+2. Branch on the response field has_full_text, not on the presence of a PMCID.
+   A null pmcid in a search result predicts it without a fetch, but
+   has_full_text is the authoritative answer.
+
+3. Abstract-only responses carry NO section_type at all. Any chunking that
+   packs passages by section boundary needs a separate path for them, or must
+   exclude them at ingest.
+
+4. P3 is recoverable if it ever matters: download the JATS via /pb/download and
+   parse passages ourselves. PubTator's passages are JATS paragraphs with the
+   inline <xref ref-type="bibr"> citation markers stripped (verified: 33/39
+   exact matches, and the 6 misses differed only by " [1,2]"-style markers).
+   For 0.6% of papers, logging and skipping is the better trade.
+
+
+Terminology note
+----------------
+This is PubTator3's export endpoint, not PubMed's. We do not use NCBI
+E-utilities. For reference, if we ever did: efetch on the pubmed database takes
+PMIDs and returns abstracts only; efetch on the pmc database takes PMCIDs and
+returns full text. The same split applies there.

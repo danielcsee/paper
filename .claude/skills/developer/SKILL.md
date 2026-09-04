@@ -1,13 +1,13 @@
 ---
 name: developer
-description: write code using best practices
+description: Use whenever writing, modifying, or refactoring code in this project - backend or frontend. Covers directory layout, the per-directory README requirement, and the feature-branch git workflow.
 ---
 
 Identify the language you're using and the area you're working on (backend, frontend, or both), and use the skills which best correspond to that.
 
-When writing backend code (Python/Celery, PostgreSQL, or Neo4j), use the `BACKEND` skill.
+When writing backend code (Python/Celery, PostgreSQL, or Neo4j), use the `backend` skill.
 
-When writing frontend code (React/Typescript),  use the `FRONTEND` skill.
+When writing frontend code (React/Typescript), use the `frontend` skill.
 
 ## Coding Conventions
 

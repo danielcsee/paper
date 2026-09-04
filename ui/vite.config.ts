@@ -8,12 +8,17 @@ export default defineConfig({
   server: {
     port: Number(process.env.UI_PORT ?? 5173),
     strictPort: true,
-    proxy: {
-      '/api': {
-        target: `http://127.0.0.1:${process.env.API_PORT ?? 8000}`,
-        changeOrigin: true,
-      },
-    },
+    proxy: Object.fromEntries(
+      // Everything the FastAPI app owns. In production these are same-origin,
+      // because FastAPI serves the built bundle itself.
+      ['/pb', '/api'].map((prefix) => [
+        prefix,
+        {
+          target: `http://127.0.0.1:${process.env.API_PORT ?? 8000}`,
+          changeOrigin: true,
+        },
+      ]),
+    ),
   },
   build: { outDir: 'dist', sourcemap: true },
 })

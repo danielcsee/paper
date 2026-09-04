@@ -1,6 +1,6 @@
 ---
 name: frontend
-description: write frontend code using best practices
+description: Use when writing or modifying frontend code - React components, TypeScript, or UI styling.
 ---
 
 ## Coding Conventions

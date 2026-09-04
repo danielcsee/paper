@@ -199,48 +199,190 @@ body {
 
 /* ---------- sidebar ---------- */
 .sidebar {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-left: 1px solid var(--border);
   background: var(--surface);
-  padding: 20px;
-  overflow-y: auto;
+  min-height: 0;
 }
 
-.sidebar-header {
+.search {
   display: flex;
-  align-items: center;
   gap: 8px;
-  margin-bottom: 14px;
+  padding: 16px 16px 10px;
 }
 
-.sidebar-title {
+/* Positioning context for the circular submit button sitting inside the input. */
+.search-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.search-input {
+  width: 100%;
+  /* Right padding clears the round button so text never slides under it. */
+  padding: 9px 38px 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.search-input:focus { outline: none; border-color: var(--accent); }
+
+/* Hide the browser's own clear affordance — it collides with .search-go. */
+.search-input::-webkit-search-cancel-button { display: none; }
+
+.search-go {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.search-go:disabled { opacity: 0.35; cursor: default; }
+
+.search-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.search-import {
+  flex: none;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.search-import:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.search-count {
   margin: 0;
+  padding: 0 16px 8px;
   font-size: 12px;
-  font-weight: 620;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
 }
 
-.sidebar-count {
-  font-size: 12px;
-  padding: 1px 7px;
-  border-radius: 99px;
-  background: var(--accent-soft);
-  color: var(--accent);
+/* The only scroll container in the sidebar: it is the IntersectionObserver
+   root that drives infinite scroll. */
+.results { overflow-y: auto; padding: 0 16px 16px; }
+
+.results-message {
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--text-dim);
 }
 
-.sidebar-empty { margin: 0; color: var(--text-dim); font-size: 13.5px; }
+.results-error { color: var(--accent); }
 
-.source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.chips { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 
-.source {
-  padding: 12px;
+.chip {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
 }
 
-.source-title { font-size: 13.5px; font-weight: 560; margin-bottom: 4px; }
-.source-meta, .source-ids { font-size: 12px; color: var(--text-dim); }
+/* Same highlight as the suggested questions on the landing page; selection
+   simply pins it on. */
+.chip:hover,
+.chip-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Missing an id we need: not openable, and it must not read as clickable —
+   so no pointer, no hover highlight. */
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chip:disabled:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.chip-warning {
+  margin: 0 0 3px;
+  padding-left: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.chip-title { font-size: 13.5px; font-weight: 560; line-height: 1.4; }
+
+.chip-meta, .chip-ids { font-size: 11.5px; color: var(--text-dim); }
+
+.chip-snippet {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.results-sentinel { height: 1px; }
+
+/* ---------- loading ---------- */
+.results-loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 16px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+}
 
 /* ---------- narrow screens ---------- */
 @media (max-width: 900px) {

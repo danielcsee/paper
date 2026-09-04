@@ -54,6 +54,12 @@ log "installing python dependencies"
 ./.venv/bin/python -m pip install --quiet --upgrade pip
 ./.venv/bin/python -m pip install --quiet -r api/requirements.txt
 
+# ---------- schema ----------
+if [ "$START_DB" = 1 ]; then
+  log "applying database migrations"
+  ./.venv/bin/alembic upgrade head
+fi
+
 # ---------- node deps ----------
 command -v npm >/dev/null || die "npm not found"
 if [ ! -d ui/node_modules ]; then

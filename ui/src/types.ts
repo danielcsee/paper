@@ -6,12 +6,3 @@ export interface Message {
   text: string
 }
 
-/** A retrieved paper, shown in the sidebar. Nothing produces these yet. */
-export interface Source {
-  pmcid: string
-  pmid?: string
-  title: string
-  journal?: string
-  year?: number
-  confidence?: number
-}

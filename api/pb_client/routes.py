@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.pb_client.errors import PbClientError
-from api.pb_client.models import DownloadResponse, FileKind, SearchResponse
+from api.pb_client.models import DownloadResponse, FileKind, PaperResponse, SearchResponse
 from api.pb_client.pmc import ALL_KINDS, PmcClient
 from api.pb_client.pubtator import PubTatorClient
 
@@ -51,4 +51,35 @@ async def download(
         )
     except PbClientError as exc:
         log.warning("pb/download failed for %s: %s", pmcid, exc.message)
+        raise _fail(exc) from exc
+
+
+@router.get(
+    "/paper",
+    response_model=PaperResponse,
+    summary="Fetch a full annotated paper from PubTator by PMID",
+)
+async def paper(
+    request: Request,
+    pmid: int = Query(..., ge=1, description="PMID. PubTator is keyed on it."),
+    full: bool = Query(True, description="Full text. False returns title + abstract only."),
+    include_ref_passages: bool = Query(
+        False,
+        description="Keep bibliography entries in `passages` too. They are always "
+        "returned, structured, under `references`.",
+    ),
+) -> PaperResponse:
+    """PMID only.
+
+    A paper has full text in PubTator exactly when it is also in PMC, and every
+    such paper carries both ids in its search result — so callers always have a
+    PMID and there is nothing to resolve.
+    """
+    pubtator: PubTatorClient = request.app.state.pubtator
+    try:
+        return await pubtator.fetch_paper(
+            pmid, full=full, include_ref_passages=include_ref_passages
+        )
+    except PbClientError as exc:
+        log.warning("pb/paper failed for pmid=%s: %s", pmid, exc.message)
         raise _fail(exc) from exc

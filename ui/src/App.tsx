@@ -1,12 +1,10 @@
 import { useState } from 'react'
 import ChatWindow from './components/ChatWindow'
 import Sidebar from './components/Sidebar'
-import type { Message, Source } from './types'
+import type { Message } from './types'
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
-  // Populated by the retrieval layer once /query exists.
-  const [sources] = useState<Source[]>([])
 
   function handleSend(text: string) {
     setMessages((prev) => [
@@ -32,7 +30,7 @@ export default function App() {
 
       <main className="layout">
         <ChatWindow messages={messages} onSend={handleSend} />
-        <Sidebar sources={sources} />
+        <Sidebar />
       </main>
     </div>
   )
