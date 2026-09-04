@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.app.config import get_settings
+from api.corpus import router as corpus_router
 from api.ingestion import router as ingestion_router
 from api.pb_client import PmcClient, PubTatorClient
 from api.pb_client import http as pb_http
@@ -37,6 +38,7 @@ app = FastAPI(title="litgraph", lifespan=lifespan)
 # swallow every path, /pb included.
 app.include_router(pb_router)
 app.include_router(ingestion_router)
+app.include_router(corpus_router)
 
 dist = settings.litgraph_ui_dist
 

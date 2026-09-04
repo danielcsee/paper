@@ -66,10 +66,33 @@ body {
 .brand-name { font-weight: 620; letter-spacing: -0.01em; }
 
 .brand-tagline {
+  margin-left: auto;
   color: var(--text-dim);
   font-size: 13px;
-  padding-left: 14px;
-  border-left: 1px solid var(--border);
+}
+
+/* ---------- tabs ---------- */
+.tabs { display: flex; gap: 4px; padding-left: 10px; margin-left: 10px;
+        border-left: 1px solid var(--border); }
+
+.tab {
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.tab:hover { color: var(--text); background: var(--accent-soft); }
+
+.tab-active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 /* ---------- layout ---------- */
@@ -196,6 +219,70 @@ body {
 }
 
 .composer-send:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- my corpus ---------- */
+.corpus {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.corpus-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 12px;
+  max-width: 768px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.corpus-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.corpus-count { margin: 3px 0 0; font-size: 13px; color: var(--text-dim); }
+
+.corpus-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.corpus-close:hover { border-color: var(--accent); color: var(--accent); }
+
+/* The scroll container, and the IntersectionObserver root for infinite scroll. */
+.corpus-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 24px; }
+
+.corpus-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  max-width: 768px;
+  display: grid;
+  gap: 10px;
+}
+
+/* A corpus entry is not selectable, so it must not read as clickable. */
+.chip-static { cursor: default; }
+.chip-static:hover { border-color: var(--border); background: var(--surface); }
+
+.corpus-scroll .results-message,
+.corpus-scroll .results-loading { max-width: 768px; margin-inline: auto; }
 
 /* ---------- sidebar ---------- */
 .sidebar {

@@ -325,6 +325,11 @@ class PaperStageRun(Base):
     STAGES = ("ingest", "embed", "graph")
     STATUSES = ("pending", "running", "done", "failed", "skipped")
 
+    #: Completing this stage is what "successfully imported" means. Lives here
+    #: rather than in one package because ingestion writes it and corpus reads
+    #: it, and the two must not drift. Moves to 'graph' when that stage exists.
+    FINAL_STAGE = "embed"
+
     paper_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True
     )
