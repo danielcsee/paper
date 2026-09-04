@@ -33,6 +33,21 @@ class Settings(BaseSettings):
     #: sent to NCBI unless you put an address here yourself.
     ncbi_contact_email: Optional[str] = None
 
+    # --- Celery ---
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+    #: NCBI tolerates roughly 3 requests/second. Enforced on the fetch task so
+    #: the limit lives at the queue rather than in application code.
+    pubtator_rate_limit: str = "3/s"
+
+    # --- Embeddings ---
+    #: Must produce vectors of api.db.models.EMBEDDING_DIM (768). Changing this
+    #: invalidates every stored embedding via the stage fingerprint.
+    embedding_model: str = "BAAI/bge-base-en-v1.5"
+    embedding_batch_size: int = 32
+    #: Upper bound per chunk when packing passages.
+    chunk_max_tokens: int = 512
+
 
 @lru_cache
 def get_settings() -> Settings:

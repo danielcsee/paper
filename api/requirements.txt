@@ -8,5 +8,6 @@ SQLAlchemy>=2.0,<2.1
 alembic>=1.13,<2
 psycopg[binary]>=3.1,<4
 pgvector>=0.3,<0.5
-# Declared now so the ingestion pipeline has a home; no tasks are wired up yet.
-celery>=5.4,<6
+# Ingestion pipeline: Celery over Redis, and local chunk embeddings.
+celery[redis]>=5.4,<6
+sentence-transformers>=3.0,<6

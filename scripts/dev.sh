@@ -32,8 +32,8 @@ UI_PORT="${UI_PORT:-5173}"
 # ---------- datastores ----------
 if [ "$START_DB" = 1 ]; then
   command -v docker >/dev/null || die "docker not found (or run with --no-db)"
-  log "starting postgres + neo4j"
-  docker compose up -d postgres neo4j
+  log "starting postgres + neo4j + redis"
+  docker compose up -d postgres neo4j redis
   log "waiting for healthchecks (neo4j downloads the GDS plugin on first run)"
   for _ in $(seq 1 90); do
     unhealthy=$(docker compose ps --format '{{.Service}} {{.Health}}' \
@@ -83,10 +83,20 @@ if [ "$PROD" = 1 ]; then
   log "FastAPI serving the bundle on http://localhost:${API_PORT}"
   ./.venv/bin/uvicorn api.app.main:app --host 0.0.0.0 --port "$API_PORT" &
   PIDS+=($!)
+  if [ "$START_DB" = 1 ]; then
+    log "celery worker (concurrency 2)"
+    ./.venv/bin/celery -A api.ingestion.celery_app worker --loglevel=info --concurrency=2 &
+    PIDS+=($!)
+  fi
 else
   log "api  → http://localhost:${API_PORT}"
   ./.venv/bin/uvicorn api.app.main:app --host 0.0.0.0 --port "$API_PORT" --reload &
   PIDS+=($!)
+  if [ "$START_DB" = 1 ]; then
+    log "celery worker (concurrency 2)"
+    ./.venv/bin/celery -A api.ingestion.celery_app worker --loglevel=info --concurrency=2 &
+    PIDS+=($!)
+  fi
   log "ui   → http://localhost:${UI_PORT}"
   API_PORT="$API_PORT" UI_PORT="$UI_PORT" npm --prefix ui run dev &
   PIDS+=($!)

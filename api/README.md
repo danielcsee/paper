@@ -15,6 +15,7 @@ datastores and applies migrations.
 | [`app/`](app) | FastAPI application object, lifespan wiring, and `Settings` |
 | [`pb_client/`](pb_client) | Clients for the two NCBI services, and the `/pb` routes |
 | [`db/`](db) | SQLAlchemy models, session plumbing, and Alembic migrations |
+| [`ingestion/`](ingestion) | Celery import pipeline and the `/import` routes (stubbed) |
 
 ## Dependencies
 
@@ -24,13 +25,14 @@ Declared in `requirements.txt`:
 - **pydantic-settings** — configuration from environment and `.env`
 - **httpx** — async HTTP client for the NCBI calls
 - **SQLAlchemy** 2.x / **alembic** / **psycopg** (v3) / **pgvector** — Postgres
-- **celery** — declared so the ingestion pipeline has a home; no tasks are
-  wired up yet
+- **celery[redis]** — the import pipeline's task queue
+- **sentence-transformers** — local chunk embeddings (BAAI/bge-base-en-v1.5)
 
-Postgres and Neo4j themselves run in Docker (`docker-compose.yml` at the root).
+Postgres, Neo4j and Redis run in Docker (`docker-compose.yml` at the root).
 
 ## Notes
 
-Nothing in the API connects to Postgres or Neo4j yet. `db/` defines the schema
-and `app/config.py` holds the connection strings, but the request path today is
-NCBI-only: search, download, and fetch an annotated paper.
+The request path today is NCBI-only: search, download, and fetch an annotated
+paper. `db/` defines the schema and the migrations apply, but nothing writes to
+it yet — `ingestion/` is stubbed, so `/import` raises `NotImplementedError`.
+Neo4j is running but untouched.
