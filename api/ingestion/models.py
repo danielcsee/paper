@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from api.pb_client.models import SearchResult
 
-ImportStatus = Literal["queued", "already_imported", "rejected"]
+ImportStatus = Literal["queued", "in_progress", "already_imported", "rejected"]
 
 #: Cap on one request. Every queued paper becomes a PubTator fetch, and the
 #: worker is rate-limited to ~3/s, so an unbounded batch is a long queue rather
@@ -25,13 +25,21 @@ class ImportRequest(BaseModel):
     """
 
     papers: list[SearchResult] = Field(..., min_length=1, max_length=MAX_BATCH)
-    #: Re-import papers already marked done, rather than skipping them.
+    #: Re-import regardless of ledger state, including papers still in flight.
+    #: The escape hatch for a chain that died without marking itself failed.
     force: bool = False
 
 
 class ImportJob(BaseModel):
+    """One paper's outcome.
+
+    `in_progress` means an earlier chain is still working on it, so nothing was
+    queued — re-queueing would put two chains on the same rows at once.
+    """
+
     pmid: Optional[int] = None
     status: ImportStatus
+    #: Set only for `queued`; we do not persist the task id of earlier runs.
     task_id: Optional[str] = None
     #: Why a paper was rejected — no PMID, for instance.
     reason: Optional[str] = None

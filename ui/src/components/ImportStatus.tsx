@@ -1,4 +1,4 @@
-import type { ImportResponse } from '../api'
+import type { ImportJobStatus, ImportResponse } from '../api'
 
 interface Props {
   pending: boolean
@@ -41,13 +41,15 @@ export default function ImportStatus({
 
   if (!result) return null
 
-  const queued = result.jobs.filter((job) => job.status === 'queued').length
-  const already = result.jobs.filter((job) => job.status === 'already_imported').length
+  const count = (status: ImportJobStatus) =>
+    result.jobs.filter((job) => job.status === status).length
   const rejected = result.jobs.filter((job) => job.status === 'rejected')
 
+  // Every status is named here, so a paper can never vanish from the summary.
   const parts = [
-    `${queued} queued`,
-    already > 0 ? `${already} already imported` : null,
+    `${count('queued')} queued`,
+    count('in_progress') > 0 ? `${count('in_progress')} already running` : null,
+    count('already_imported') > 0 ? `${count('already_imported')} already imported` : null,
     rejected.length > 0 ? `${rejected.length} rejected` : null,
   ].filter(Boolean)
 

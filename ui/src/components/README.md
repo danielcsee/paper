@@ -20,8 +20,7 @@ Paper search against `/pb/search`; the only component that calls the API.
   so slow responses cannot overwrite newer results.
 - **Selection.** Results toggle into a `Map` keyed by `resultKey()`, holding
   the whole result: `/import` needs the objects, and a chip can scroll out of
-  view before Import is pressed. Cleared on a new search, so the button never
-  queues papers the user cannot see.
+  view first. Cleared on a new search.
 - **Import.** Enabled once something is selected; posts the selection to
   `/import` and clears it on success.
 - **Warnings.** `resultWarning()` labels and disables results that cannot be
@@ -30,8 +29,9 @@ Paper search against `/pb/search`; the only component that calls the API.
 ## `ImportStatus.tsx`
 
 The outcome of the last `/import` call: a spinner while queuing, a summary
-(`queued · already imported · rejected`) with reasons for rejections, or a
-dismissible error. Purely presentational — `Sidebar` owns the state.
+naming every status (`queued · already running · already imported · rejected`)
+so no paper is silently dropped, or a dismissible error. Purely presentational
+— `Sidebar` owns the state.
 
 ## Dependencies
 

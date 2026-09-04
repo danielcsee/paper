@@ -8,7 +8,7 @@ through SQLAlchemy's blocking API, so FastAPI runs them in its threadpool; an
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from collections import Counter
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -31,23 +31,28 @@ router = APIRouter(tags=["import"])
 def import_papers(request: ImportRequest) -> ImportResponse:
     """Kick off one chain per selected paper.
 
-    Returns immediately with a job per paper, in request order. Three outcomes:
+    Returns immediately with a job per paper, in request order. Four outcomes:
 
     * **rejected** — no PMID. PubTator's export endpoint is keyed on PMID, so
       there is nothing to fetch. Rejected per item rather than failing the whole
       batch, since a mixed selection is normal.
-    * **already_imported** — the paper's final stage is `done`. Pass
-      `force: true` to re-run anyway.
+    * **already_imported** — the paper's final stage is `done`.
+    * **in_progress** — an earlier chain is still working on it. Nothing is
+      queued: two chains on the same paper would write the same rows
+      concurrently, and Celery does not deduplicate.
     * **queued** — a chain was submitted; `task_id` is the chain's id.
+
+    `force: true` overrides both ledger states, including `in_progress` — the
+    escape hatch for a chain that died without marking itself failed.
 
     A PMID repeated inside one request is queued once.
     """
     pmids: list[int] = [p.pmid for p in request.papers if p.pmid is not None]
 
-    completed: set[int] = set()
+    states: dict[int, persist.LedgerState] = {}
     if pmids and not request.force:
         with session_scope() as session:
-            completed = persist.completed_pmids(session, pmids)
+            states = persist.import_states(session, pmids)
 
     jobs: list[ImportJob] = []
     queued: dict[int, str] = {}
@@ -63,8 +68,18 @@ def import_papers(request: ImportRequest) -> ImportResponse:
             )
             continue
 
-        if paper.pmid in completed:
+        state = states.get(paper.pmid)
+        if state == "complete":
             jobs.append(ImportJob(pmid=paper.pmid, status="already_imported"))
+            continue
+        if state == "in_progress":
+            jobs.append(
+                ImportJob(
+                    pmid=paper.pmid,
+                    status="in_progress",
+                    reason="an earlier import is still running; pass force to re-queue",
+                )
+            )
             continue
 
         # Same PMID twice in one selection: report both, queue one.
@@ -87,12 +102,8 @@ def import_papers(request: ImportRequest) -> ImportResponse:
             queued[paper.pmid] = task_id
         jobs.append(ImportJob(pmid=paper.pmid, status="queued", task_id=task_id))
 
-    log.info(
-        "POST /import: %d queued, %d already imported, %d rejected",
-        sum(1 for j in jobs if j.status == "queued"),
-        sum(1 for j in jobs if j.status == "already_imported"),
-        sum(1 for j in jobs if j.status == "rejected"),
-    )
+    counts = Counter(job.status for job in jobs)
+    log.info("POST /import: %s", dict(counts))
     return ImportResponse(jobs=jobs)
 
 

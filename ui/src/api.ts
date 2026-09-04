@@ -65,12 +65,18 @@ export function resultWarning(result: SearchResult): string | null {
 
 // --- import ---
 
-export type ImportJobStatus = 'queued' | 'already_imported' | 'rejected'
+export type ImportJobStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'already_imported'
+  | 'rejected'
 
 export interface ImportJob {
   pmid: number | null
   status: ImportJobStatus
+  /** Set only for `queued`. */
   task_id: string | null
+  /** Why a paper was rejected, or why it was not re-queued. */
   reason: string | null
 }
 

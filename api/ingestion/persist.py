@@ -7,7 +7,7 @@ which is what the unique constraints in `api.db.models` are there to enforce.
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -19,13 +19,26 @@ from api.pb_client.models import PaperResponse
 #: chain's last stage is the only honest answer to "is this done?".
 FINAL_STAGE = "embed"
 
+#: Stage statuses that mean a chain is still working on a paper.
+ACTIVE_STATUSES = ("pending", "running")
 
-def completed_pmids(session: Session, pmids: Sequence[int]) -> set[int]:
-    """Of these PMIDs, which are fully imported.
+#: What the ledger says about a paper that already has rows. Deliberately not
+#: the API's vocabulary — routes.py maps these onto ImportStatus.
+LedgerState = Literal["complete", "in_progress"]
 
-    A paper counts as complete when its `FINAL_STAGE` row is 'done'. A paper
-    that is half-imported or failed is deliberately NOT complete: re-queueing
-    it is correct, and each task self-skips the stages already current.
+
+def import_states(session: Session, pmids: Sequence[int]) -> dict[int, LedgerState]:
+    """What the ledger already knows about these PMIDs.
+
+    Only papers in one of two states appear; anything absent should be queued.
+
+    * ``complete``    — the `FINAL_STAGE` row is 'done'.
+    * ``in_progress`` — not complete, but some stage is 'pending' or 'running',
+      so a chain is still working on it. Queueing another would put two chains
+      on the same rows concurrently.
+
+    A paper whose stages all *failed* is in neither state: re-queueing it is
+    the correct response, and each task self-skips the stages already current.
     """
     raise NotImplementedError
 
