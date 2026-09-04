@@ -14,8 +14,8 @@ of chat / corpus / paper beside a permanently mounted `<Sidebar />`.
 `handleSend` still appends a placeholder reply; the retrieval call goes there.
 
 **`navigation.ts`** — `View`, the tab model, title truncation, the view↔URL
-mapping, and `loadTabs`/`saveTabs`. The corpus UI route is `/corpus-view`,
-because `/corpus` is an API path.
+mapping, and `loadTabs`/`saveTabs`. The corpus UI route is `/my-corpus`,
+kept clear of the `/corpus` API path.
 
 Open tabs persist to `localStorage`; the active view does not, since the URL
 carries it and should win for a shared link. Reads are validated and every

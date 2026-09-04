@@ -41,7 +41,7 @@ export function truncateTitle(title: string | null, max = TAB_TITLE_MAX): string
 export function viewToPath(view: View): string {
   switch (view.kind) {
     case 'corpus':
-      return '/corpus-view'
+      return '/my-corpus'
     case 'paper':
       return `/paper/${view.paperId}`
     default:
@@ -54,7 +54,7 @@ export function pathToView(path: string): View {
     const id = Number(path.slice('/paper/'.length))
     if (Number.isInteger(id) && id > 0) return { kind: 'paper', paperId: id }
   }
-  return path === '/corpus-view' ? CORPUS : CHAT
+  return path === '/my-corpus' ? CORPUS : CHAT
 }
 
 

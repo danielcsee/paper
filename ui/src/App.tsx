@@ -65,13 +65,25 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
-  function openPaper(paperId: number, title: string | null) {
+  function addTab(paperId: number, title: string | null) {
     setTabs((prev) =>
       prev.some((tab) => tab.paperId === paperId)
         ? prev
         : [...prev, { paperId, title: title ?? `Paper ${paperId}` }],
     )
+  }
+
+  function openPaper(paperId: number, title: string | null) {
+    addTab(paperId, title)
     navigate({ kind: 'paper', paperId })
+  }
+
+  /**
+   * Queue a paper up without leaving the current view — no navigate, so the
+   * visit stack and the URL are untouched and the reader keeps their place.
+   */
+  function openPaperInBackground(paperId: number, title: string | null) {
+    addTab(paperId, title)
   }
 
   function closePaper(paperId: number) {
@@ -165,6 +177,9 @@ export default function App() {
           <CorpusView
             onClose={() => navigate(CHAT)}
             onOpenPaper={(paperId, title) => openPaper(paperId, truncateTitle(title, 200))}
+            onOpenPaperInBackground={(paperId, title) =>
+              openPaperInBackground(paperId, truncateTitle(title, 200))
+            }
           />
         ) : (
           <ChatWindow messages={messages} onSend={handleSend} />

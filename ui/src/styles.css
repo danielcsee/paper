@@ -371,6 +371,34 @@ body {
 /* A corpus entry opens the paper, so it keeps the clickable affordance. */
 .chip-openable { cursor: pointer; }
 
+/* Positioning context for the card's corner action. The action is a sibling
+   of the card, not a child: the card is a button. */
+.card-slot { position: relative; }
+
+/* Room for the icon, so a long title never runs underneath it. */
+.card-slot .chip { padding-right: 34px; }
+
+.open-in-tab {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.open-in-tab:hover { background: var(--accent-soft); }
+
+.open-in-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .corpus-scroll .results-message,
 .corpus-scroll .results-loading { max-width: 768px; margin-inline: auto; }
 

@@ -8,6 +8,7 @@ Ingest pipeline: Celery
 Datastore (for papers): PostgreSQL
 Knowledge graph: Neo4j
 
+Authentication is purposefully excluded: this is a local-only project.
 
 ## Commands
 

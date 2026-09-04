@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, fetchCorpus, type CorpusPaper } from '../api'
+import OpenInTabButton from './OpenInTabButton'
 import PaperCard from './PaperCard'
 
 /** Distance from the bottom at which the next page starts loading. */
@@ -8,10 +9,16 @@ const SCROLL_MARGIN = '320px'
 interface Props {
   onClose: () => void
   onOpenPaper: (paperId: number, title: string | null) => void
+  /** Opens a tab without leaving this view. */
+  onOpenPaperInBackground: (paperId: number, title: string | null) => void
 }
 
 /** Every paper that finished importing, newest first, in one infinite column. */
-export default function CorpusView({ onClose, onOpenPaper }: Props) {
+export default function CorpusView({
+  onClose,
+  onOpenPaper,
+  onOpenPaperInBackground,
+}: Props) {
   const [papers, setPapers] = useState<CorpusPaper[]>([])
   const [page, setPage] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
@@ -105,7 +112,9 @@ export default function CorpusView({ onClose, onOpenPaper }: Props) {
 
         <ul className="corpus-list">
           {papers.map((paper) => (
-            <li key={paper.paper_id}>
+            // The card and its action are siblings, not nested: the card is a
+            // button, and a button inside a button is invalid.
+            <li key={paper.paper_id} className="card-slot">
               <button
                 type="button"
                 className="chip chip-openable"
@@ -122,6 +131,10 @@ export default function CorpusView({ onClose, onOpenPaper }: Props) {
                   extra={`${paper.chunk_count} chunk${paper.chunk_count === 1 ? '' : 's'}`}
                 />
               </button>
+              <OpenInTabButton
+                label={paper.title ?? `paper ${paper.paper_id}`}
+                onClick={() => onOpenPaperInBackground(paper.paper_id, paper.title)}
+              />
             </li>
           ))}
         </ul>
