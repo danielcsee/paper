@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ApiError,
+  importPapers,
   resultKey,
   resultWarning,
   searchPapers,
+  type ImportResponse,
   type SearchResult,
 } from '../api'
+import ImportStatus from './ImportStatus'
 
 /** Pixels from the bottom at which the next page starts loading. */
 const SCROLL_MARGIN = '240px'
@@ -19,9 +22,16 @@ export default function Sidebar() {
   const [totalResults, setTotalResults] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  // Keyed by resultKey, holding the whole result: /import needs the objects,
+  // and a chip can scroll out of `results` before the user hits Import.
+  const [selected, setSelected] = useState<ReadonlyMap<string, SearchResult>>(new Map())
+  const [importing, setImporting] = useState(false)
+  const [importCount, setImportCount] = useState(0)
+  const [importResult, setImportResult] = useState<ImportResponse | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const importAbortRef = useRef<AbortController | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   // Read inside the observer callback, which must not re-subscribe on every
@@ -65,6 +75,11 @@ export default function Sidebar() {
     setResults([])
     setPage(0)
     setTotalPages(0)
+    // Selection refers to the results on screen; carrying it across a new
+    // search would queue papers the user can no longer see.
+    setSelected(new Map())
+    setImportResult(null)
+    setImportError(null)
     scrollRef.current?.scrollTo({ top: 0 })
     void runSearch(text, 1)
   }
@@ -88,14 +103,46 @@ export default function Sidebar() {
   }, [runSearch])
 
   // Drop any in-flight request if the panel goes away.
-  useEffect(() => () => abortRef.current?.abort(), [])
+  useEffect(
+    () => () => {
+      abortRef.current?.abort()
+      importAbortRef.current?.abort()
+    },
+    [],
+  )
 
-  function toggle(key: string) {
+  function toggle(key: string, result: SearchResult) {
     setSelected((prev) => {
-      const next = new Set(prev)
-      if (!next.delete(key)) next.add(key)
+      const next = new Map(prev)
+      if (!next.delete(key)) next.set(key, result)
       return next
     })
+  }
+
+  async function handleImport() {
+    const papers = [...selected.values()]
+    if (papers.length === 0) return
+
+    importAbortRef.current?.abort()
+    const controller = new AbortController()
+    importAbortRef.current = controller
+
+    setImporting(true)
+    setImportCount(papers.length)
+    setImportResult(null)
+    setImportError(null)
+    try {
+      const response = await importPapers(papers, controller.signal)
+      setImportResult(response)
+      setSelected(new Map())
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
+      setImportError(
+        err instanceof ApiError ? err.message : 'Could not reach the import service.',
+      )
+    } finally {
+      if (!controller.signal.aborted) setImporting(false)
+    }
   }
 
   const exhausted = query !== '' && page > 0 && page >= totalPages
@@ -132,11 +179,31 @@ export default function Sidebar() {
             </svg>
           </button>
         </div>
-        {/* Will kick off an ingestion job for the selected papers. */}
-        <button className="search-import" type="button" disabled>
-          Import
+        <button
+          className="search-import"
+          type="button"
+          onClick={handleImport}
+          disabled={selected.size === 0 || importing}
+          title={
+            selected.size === 0
+              ? 'Select one or more results to import'
+              : `Import ${selected.size} selected`
+          }
+        >
+          Import{selected.size > 0 ? ` (${selected.size})` : ''}
         </button>
       </form>
+
+      <ImportStatus
+        pending={importing}
+        pendingCount={importCount}
+        result={importResult}
+        error={importError}
+        onDismiss={() => {
+          setImportResult(null)
+          setImportError(null)
+        }}
+      />
 
       {totalResults > 0 && (
         <p className="search-count">
@@ -164,7 +231,7 @@ export default function Sidebar() {
                   className={`chip${isSelected ? ' chip-selected' : ''}`}
                   aria-pressed={isSelected}
                   disabled={disabled}
-                  onClick={() => toggle(key)}
+                  onClick={() => toggle(key, result)}
                 >
                   <span className="chip-title">{result.title ?? 'Untitled'}</span>
                   <span className="chip-meta">

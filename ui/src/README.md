@@ -14,7 +14,7 @@ the top bar, `<ChatWindow />`, and `<Sidebar />`. `handleSend` currently
 appends the user's message plus a fixed placeholder reply; this is where the
 retrieval call will go once the pipeline exists.
 
-**`api.ts`** — typed access to the FastAPI `/pb` routes. Its interfaces mirror
+**`api.ts`** — typed access to the FastAPI `/pb` and `/import` routes. Its interfaces mirror
 `api/pb_client/models.py`, so **changing a response model there means changing
 this file too**. Throws `ApiError` on failure and accepts an `AbortSignal` so
 superseded searches can be cancelled. Also exports the helpers for keying and

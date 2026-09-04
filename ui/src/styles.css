@@ -199,8 +199,10 @@ body {
 
 /* ---------- sidebar ---------- */
 .sidebar {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  /* Flex, not grid: the number of children above .results varies (result
+     count, import status), and .results must stay the flexible last row. */
+  display: flex;
+  flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--surface);
   min-height: 0;
@@ -285,7 +287,7 @@ body {
 
 /* The only scroll container in the sidebar: it is the IntersectionObserver
    root that drives infinite scroll. */
-.results { overflow-y: auto; padding: 0 16px 16px; }
+.results { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; }
 
 .results-message {
   margin: 12px 0;
@@ -357,6 +359,56 @@ body {
 }
 
 .results-sentinel { height: 1px; }
+
+/* ---------- import ---------- */
+.import-status {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 16px 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* The pending row is icon + text on one line. */
+.import-status[role="status"]:has(> .spinner) {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+
+.import-status-error { border-color: var(--accent); color: var(--accent); }
+
+.import-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.import-dismiss {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.import-dismiss:hover { color: var(--accent); }
+
+.import-rejected {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11.5px;
+}
 
 /* ---------- loading ---------- */
 .results-loading {
