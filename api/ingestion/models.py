@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
-
-from api.pb_client.models import SearchResult
+from pydantic import BaseModel, ConfigDict, Field
 
 ImportStatus = Literal["queued", "in_progress", "already_imported", "rejected"]
 
@@ -22,15 +20,19 @@ PaperState = Literal["queued", "started", "success", "error"]
 MAX_BATCH = 100
 
 
+class ImportPmid(BaseModel):
+    """One paper to import, identified by PMID."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    pmid: int
+    #: Unused so far — no stage fetches references yet; carried through so the
+    #: wire shape is ready when one does.
+    include_references: bool = Field(default=False, alias="includeReferences")
+
+
 class ImportRequest(BaseModel):
-    """The selected search results, exactly as the sidebar holds them.
-
-    Only `pmid` is actually needed, but accepting whole results keeps the
-    frontend from having to reshape its own state, and leaves room to record
-    the query a paper was imported from later.
-    """
-
-    papers: list[SearchResult] = Field(..., min_length=1, max_length=MAX_BATCH)
+    pmids: list[ImportPmid] = Field(..., min_length=1, max_length=MAX_BATCH)
     #: Re-import regardless of ledger state, including papers still in flight.
     #: The escape hatch for a chain that died without marking itself failed.
     force: bool = False

@@ -31,11 +31,8 @@ router = APIRouter(tags=["import"])
 def import_papers(request: ImportRequest) -> ImportResponse:
     """Kick off one chain per selected paper.
 
-    Returns immediately with a job per paper, in request order. Four outcomes:
+    Returns immediately with a job per paper, in request order. Three outcomes:
 
-    * **rejected** — no PMID. PubTator's export endpoint is keyed on PMID, so
-      there is nothing to fetch. Rejected per item rather than failing the whole
-      batch, since a mixed selection is normal.
     * **already_imported** — the paper's final stage is `done`.
     * **in_progress** — an earlier chain is still working on it. Nothing is
       queued: two chains on the same paper would write the same rows
@@ -47,7 +44,7 @@ def import_papers(request: ImportRequest) -> ImportResponse:
 
     A PMID repeated inside one request is queued once.
     """
-    pmids: list[int] = [p.pmid for p in request.papers if p.pmid is not None]
+    pmids: list[int] = [item.pmid for item in request.pmids]
 
     states: dict[int, persist.LedgerState] = {}
     if pmids and not request.force:
@@ -57,25 +54,15 @@ def import_papers(request: ImportRequest) -> ImportResponse:
     jobs: list[ImportJob] = []
     queued: dict[int, str] = {}
 
-    for paper in request.papers:
-        if paper.pmid is None:
-            jobs.append(
-                ImportJob(
-                    pmid=None,
-                    status="rejected",
-                    reason="no PMID; PubTator cannot be queried without one",
-                )
-            )
-            continue
-
-        state = states.get(paper.pmid)
+    for item in request.pmids:
+        state = states.get(item.pmid)
         if state == "complete":
-            jobs.append(ImportJob(pmid=paper.pmid, status="already_imported"))
+            jobs.append(ImportJob(pmid=item.pmid, status="already_imported"))
             continue
         if state == "in_progress":
             jobs.append(
                 ImportJob(
-                    pmid=paper.pmid,
+                    pmid=item.pmid,
                     status="in_progress",
                     reason="an earlier import is still running; pass force to re-queue",
                 )
@@ -83,8 +70,8 @@ def import_papers(request: ImportRequest) -> ImportResponse:
             continue
 
         # Same PMID twice in one selection: report both, queue one.
-        if paper.pmid in queued:
-            jobs.append(ImportJob(pmid=paper.pmid, status="queued", task_id=queued[paper.pmid]))
+        if item.pmid in queued:
+            jobs.append(ImportJob(pmid=item.pmid, status="queued", task_id=queued[item.pmid]))
             continue
 
         try:
@@ -92,19 +79,19 @@ def import_papers(request: ImportRequest) -> ImportResponse:
             # paper is visible as in_progress from the moment it is requested
             # rather than only once its first task finishes.
             with session_scope() as session:
-                reserved_id = persist.reserve_paper(session, paper.pmid)
+                reserved_id = persist.reserve_paper(session, item.pmid)
                 persist.mark_queued(session, reserved_id, ("ingest", "embed"))
-            result = import_paper(paper.pmid, force=request.force)
+            result = import_paper(item.pmid, force=request.force)
         except Exception as exc:  # broker unreachable, mainly
-            log.exception("could not queue PMID %s", paper.pmid)
+            log.exception("could not queue PMID %s", item.pmid)
             raise HTTPException(
                 status_code=503, detail=f"could not queue import: {exc}"
             ) from exc
 
         task_id = getattr(result, "id", None)
         if task_id is not None:
-            queued[paper.pmid] = task_id
-        jobs.append(ImportJob(pmid=paper.pmid, status="queued", task_id=task_id))
+            queued[item.pmid] = task_id
+        jobs.append(ImportJob(pmid=item.pmid, status="queued", task_id=task_id))
 
     counts = Counter(job.status for job in jobs)
     log.info("POST /import: %s", dict(counts))

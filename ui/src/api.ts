@@ -128,15 +128,20 @@ export async function fetchImportStatus(
   return (await response.json()) as ImportStatusResponse
 }
 
+export interface ImportPmids {
+  pmid: number
+  includeReferences: boolean
+}
+
 /** Queue the selected papers for ingestion. */
 export async function importPapers(
-  papers: SearchResult[],
+  pmids: ImportPmids[],
   signal?: AbortSignal,
 ): Promise<ImportResponse> {
   const response = await fetch('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ papers }),
+    body: JSON.stringify({ pmids }),
     signal,
   })
 

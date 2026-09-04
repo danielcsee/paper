@@ -5,6 +5,7 @@ import {
   resultKey,
   resultWarning,
   searchPapers,
+  type ImportPmids,
   type SearchResult,
 } from '../api'
 import { useImportStatus } from '../useImportStatus'
@@ -132,7 +133,10 @@ export default function Sidebar() {
     setImportCount(papers.length)
     setImportError(null)
     try {
-      const response = await importPapers(papers, controller.signal)
+      const pmids: ImportPmids[] = papers
+        .filter((paper): paper is SearchResult & { pmid: number } => paper.pmid != null)
+        .map((paper) => ({ pmid: paper.pmid, includeReferences: false }))
+      const response = await importPapers(pmids, controller.signal)
       // Titles come from the selection: a queued paper has none stored yet.
       importStatus.track(response, papers)
       setSelected(new Map())
