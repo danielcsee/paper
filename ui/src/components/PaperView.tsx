@@ -5,6 +5,8 @@ interface Props {
   paperId: number
   /** Lets the tab title update once the full title arrives. */
   onLoaded?: (paper: PaperDetail) => void
+  /** The paper is gone (404), so its tab should not outlive this session. */
+  onMissing?: (paperId: number) => void
 }
 
 /** Human labels for PubTator's section codes, for the section rules. */
@@ -41,7 +43,7 @@ function formatReference(reference: {
 }
 
 /** One stored paper, laid out for reading. */
-export default function PaperView({ paperId, onLoaded }: Props) {
+export default function PaperView({ paperId, onLoaded, onMissing }: Props) {
   const [paper, setPaper] = useState<PaperDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +61,9 @@ export default function PaperView({ paperId, onLoaded }: Props) {
       .catch((err: unknown) => {
         if ((err as Error)?.name === 'AbortError') return
         setError(err instanceof ApiError ? err.message : 'Could not reach the server.')
+        // 404 means the paper left the corpus. Keep the tab for this session so
+        // the reader sees why, but tell App to stop persisting it.
+        if (err instanceof ApiError && err.status === 404) onMissing?.(paperId)
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)

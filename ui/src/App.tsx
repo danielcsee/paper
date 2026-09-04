@@ -8,8 +8,10 @@ import Sidebar from './components/Sidebar'
 import {
   CHAT,
   CORPUS,
+  loadTabs,
   pathToView,
   sameView,
+  saveTabs,
   truncateTitle,
   viewToPath,
   type PaperTab,
@@ -20,14 +22,25 @@ import type { Message } from './types'
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [tabs, setTabs] = useState<PaperTab[]>(() => {
-    // A shared /paper/12 link should open that tab, with a placeholder label
-    // until PaperView reports the real title.
+    // Tabs survive a reload; the URL still decides which one is showing. A
+    // shared /paper/12 link opens that tab too, with a placeholder label until
+    // PaperView reports the real title.
+    const stored = loadTabs()
     const initial = pathToView(window.location.pathname)
-    return initial.kind === 'paper'
-      ? [{ paperId: initial.paperId, title: `Paper ${initial.paperId}` }]
-      : []
+    if (initial.kind !== 'paper') return stored
+    return stored.some((tab) => tab.paperId === initial.paperId)
+      ? stored
+      : [...stored, { paperId: initial.paperId, title: `Paper ${initial.paperId}` }]
   })
+
+  // Papers that 404ed this session. Their tab stays so the reader sees why,
+  // but it must not come back after a reload.
+  const [missing, setMissing] = useState<ReadonlySet<number>>(new Set())
   const [view, setView] = useState<View>(() => pathToView(window.location.pathname))
+
+  useEffect(() => {
+    saveTabs(tabs.filter((tab) => !missing.has(tab.paperId)))
+  }, [tabs, missing])
 
   // Where the user has been, oldest first. Closing a paper tab pops back
   // through this, which a single "current view" could not answer.
@@ -84,6 +97,10 @@ export default function App() {
     const path = viewToPath(previous)
     if (path !== window.location.pathname) window.history.pushState({}, '', path)
   }
+
+  const handleMissing = useCallback((paperId: number) => {
+    setMissing((prev) => (prev.has(paperId) ? prev : new Set(prev).add(paperId)))
+  }, [])
 
   const handleLoaded = useCallback((paper: PaperDetail) => {
     setTabs((prev) =>
@@ -142,6 +159,7 @@ export default function App() {
             key={view.paperId}
             paperId={view.paperId}
             onLoaded={handleLoaded}
+            onMissing={handleMissing}
           />
         ) : view.kind === 'corpus' ? (
           <CorpusView

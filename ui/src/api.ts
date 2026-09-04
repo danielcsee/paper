@@ -24,7 +24,14 @@ export interface SearchResponse {
   results: SearchResult[]
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status = 0) {
+    super(message)
+    this.status = status
+  }
+}
 
 export async function searchPapers(
   text: string,
@@ -43,7 +50,7 @@ export async function searchPapers(
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
   return (await response.json()) as SearchResponse
 }
@@ -104,7 +111,7 @@ export async function importPapers(
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
   return (await response.json()) as ImportResponse
 }
@@ -155,7 +162,7 @@ export async function fetchCorpus(
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
   return (await response.json()) as CorpusPage
 }
@@ -219,7 +226,7 @@ export async function fetchPaper(
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
   return (await response.json()) as PaperDetail
 }
