@@ -84,8 +84,10 @@ if [ "$PROD" = 1 ]; then
   ./.venv/bin/uvicorn api.app.main:app --host 0.0.0.0 --port "$API_PORT" &
   PIDS+=($!)
   if [ "$START_DB" = 1 ]; then
-    log "celery worker (concurrency 2)"
-    ./.venv/bin/celery -A api.ingestion.celery_app worker --loglevel=info --concurrency=2 &
+    # solo pool: the embedding model uses Metal on macOS, which cannot be
+    # initialised in a forked child, so prefork aborts with SIGABRT.
+    log "celery worker (solo pool)"
+    ./.venv/bin/celery -A api.ingestion.celery_app worker --loglevel=info --pool=solo &
     PIDS+=($!)
   fi
 else
@@ -93,8 +95,10 @@ else
   ./.venv/bin/uvicorn api.app.main:app --host 0.0.0.0 --port "$API_PORT" --reload &
   PIDS+=($!)
   if [ "$START_DB" = 1 ]; then
-    log "celery worker (concurrency 2)"
-    ./.venv/bin/celery -A api.ingestion.celery_app worker --loglevel=info --concurrency=2 &
+    # solo pool: the embedding model uses Metal on macOS, which cannot be
+    # initialised in a forked child, so prefork aborts with SIGABRT.
+    log "celery worker (solo pool)"
+    ./.venv/bin/celery -A api.ingestion.celery_app worker --loglevel=info --pool=solo &
     PIDS+=($!)
   fi
   log "ui   → http://localhost:${UI_PORT}"

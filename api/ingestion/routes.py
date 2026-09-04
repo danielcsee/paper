@@ -88,9 +88,13 @@ def import_papers(request: ImportRequest) -> ImportResponse:
             continue
 
         try:
+            # Reserve the row and mark ingest pending *before* queueing, so a
+            # paper is visible as in_progress from the moment it is requested
+            # rather than only once its first task finishes.
+            with session_scope() as session:
+                reserved_id = persist.reserve_paper(session, paper.pmid)
+                persist.mark_queued(session, reserved_id, ("ingest", "embed"))
             result = import_paper(paper.pmid, force=request.force)
-        except NotImplementedError:
-            raise
         except Exception as exc:  # broker unreachable, mainly
             log.exception("could not queue PMID %s", paper.pmid)
             raise HTTPException(

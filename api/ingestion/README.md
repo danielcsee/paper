@@ -4,40 +4,36 @@ Selected search results go to `POST /import`, which queues one Celery chain per
 paper, ending with that paper stored in Postgres, chunked and embedded.
 
 ```
-POST /import  ->  chain(fetch_paper | persist_paper | embed_chunks)
+POST /import  ->  chain(ingest_paper | embed_paper)
 ```
-
-**Status: partly built.** `routes.py`, `models.py`, `celery_app.py`, Redis,
-settings and the embedding model are done. `tasks.py`, `persist.py`,
-`chunking.py` and `embedding.py` keep real signatures and docstrings with
-`NotImplementedError` bodies.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `celery_app.py` | Celery instance, serialization, rate limits |
-| `tasks.py` | The three chain tasks |
-| `persist.py` | `PaperResponse` → rows, plus the ledger reads `/import` uses |
-| `chunking.py` | Passages → chunks. Pure functions, no network or DB |
+| `tasks.py` | The two chain tasks |
+| `persist.py` | `PaperResponse` → rows, plus the ledger reads |
+| `chunking.py` | Passages → chunks. Pure: no network, DB or torch |
 | `embedding.py` | Lazily-loaded sentence-transformers model |
 | `routes.py` | `POST /import`, `GET /import/status` |
-| `models.py` | Request/response models for those routes |
+| `models.py` | Models for those routes |
 
 ## Decisions worth knowing
 
-**Tasks pass a `paper_id`, never a payload.** A PubTator document is ~130KB;
-through the broker every message would be huge. Stage one writes it to
-`paper_pubtator_docs`, so later stages re-run from stored state.
+**Two stages, split by retry cost.** Ingest is bound by NCBI's ~3 req/s and
+costs another fetch to retry; embedding is CPU-bound and free to retry locally.
+Chunking rides with ingest: chunks are 1:1 with PubTator passages.
 
-**Embedding is its own stage** — the slow part, retryable without re-fetching.
+**Tasks pass a `paper_id`, never a payload.** The fetched document is ~130KB
+and one paper's vectors larger still; both stay in Postgres.
 
-**`fetch_paper` calls `PubTatorClient` directly**, not our `/pb/paper` route.
+**The worker needs a non-forking pool.** On macOS the encoder selects Metal
+(`mps`), which cannot be initialised in a forked child, so prefork dies with
+SIGABRT. `dev.sh` uses `--pool=solo`; set `embedding_device=cpu` for prefork.
 
-**Both routes are sync `def`**, so blocking SQLAlchemy runs in FastAPI's
-threadpool. `/import` returns a job per paper: `rejected` (no PMID),
-`already_imported`, `in_progress` (a chain is still on it — Celery does not
-deduplicate), or `queued`. `force` overrides both ledger states.
+**`/import` marks stages pending before queueing, but never over a `done`
+row** — that would defeat the fingerprint skip and re-fetch a paper we hold.
 
 ## Dependencies
 

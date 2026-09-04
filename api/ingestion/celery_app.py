@@ -1,10 +1,16 @@
 """The Celery application.
 
-Worker:  celery -A api.ingestion.celery_app worker --loglevel=info --concurrency=2
+Worker:  celery -A api.ingestion.celery_app worker --loglevel=info --pool=solo
 
-Concurrency is deliberately low. The pipeline's slowest stage is bounded by
-NCBI's ~3 req/s tolerance, not by CPU, and the embedding stage holds a torch
-model per process — more workers would multiply memory for no throughput.
+**Use a non-forking pool.** On macOS sentence-transformers selects the Metal
+(`mps`) device, which cannot be initialised in a `fork()`ed child: the default
+prefork pool dies with SIGABRT the moment `embed_paper` encodes anything. The
+solo pool sidesteps it. On Linux, prefork works — or set `embedding_device` to
+"cpu" and use whichever pool you like.
+
+Serialising tasks costs little here anyway: the pipeline is bounded by NCBI's
+~3 req/s tolerance, and the embedding stage holds a torch model per process, so
+more workers would multiply memory for little throughput.
 """
 
 from __future__ import annotations

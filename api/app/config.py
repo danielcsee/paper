@@ -45,8 +45,10 @@ class Settings(BaseSettings):
     #: invalidates every stored embedding via the stage fingerprint.
     embedding_model: str = "BAAI/bge-base-en-v1.5"
     embedding_batch_size: int = 32
-    #: Upper bound per chunk when packing passages.
-    chunk_max_tokens: int = 512
+    #: torch device for the encoder. None lets sentence-transformers choose,
+    #: which is "mps" on Apple silicon. Set to "cpu" when the worker must run
+    #: in a forked process — Metal cannot be initialised after fork.
+    embedding_device: Optional[str] = None
 
 
 @lru_cache

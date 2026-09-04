@@ -154,7 +154,6 @@ class PaperChunk(Base):
     char_start: Mapped[int] = mapped_column(Integer, nullable=False)
     char_end: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    token_count: Mapped[Optional[int]] = mapped_column(Integer)
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(EMBEDDING_DIM))
 
     paper: Mapped[Paper] = relationship(back_populates="chunks")
@@ -164,6 +163,14 @@ class PaperChunk(Base):
         CheckConstraint("char_end > char_start", name="ck_paper_chunks_span"),
         Index("ix_paper_chunks_paper_span", "paper_id", "char_start", "char_end"),
         Index("ix_paper_chunks_section_type", "section_type"),
+        # Declared here, not just in the migration, so autogenerate knows it
+        # exists and stops emitting a DROP for it on every future revision.
+        Index(
+            "ix_paper_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
 
@@ -302,15 +309,20 @@ class PaperReference(Base):
 class PaperStageRun(Base):
     """Per-paper, per-stage ingestion ledger.
 
-    A row is written `pending` before any external call, so an outage costs
-    delay rather than data. `input_fingerprint` covers the stage's config
-    (embedding model, chunk size, parser version), so changing that config
-    self-invalidates the stage across every paper without hand-tracking.
+    A row is written `pending` before any external call — `/import` writes the
+    `ingest` row at queue time — so an outage costs delay rather than data, and
+    a paper already in flight is visible before its first task runs.
+
+    `input_fingerprint` covers the stage's config (embedding model and
+    dimension, parser version), so changing that config self-invalidates the
+    stage across every paper without hand-tracking.
     """
 
     __tablename__ = "paper_stage_runs"
 
-    STAGES = ("fetch", "chunk", "embed", "entities", "graph")
+    #: One entry per Celery task in the chain, plus `graph` for the Neo4j step
+    #: that does not exist yet — allowed now so adding it needs no migration.
+    STAGES = ("ingest", "embed", "graph")
     STATUSES = ("pending", "running", "done", "failed", "skipped")
 
     paper_id: Mapped[int] = mapped_column(
@@ -327,7 +339,7 @@ class PaperStageRun(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "stage in ('fetch','chunk','embed','entities','graph')",
+            "stage in ('ingest','embed','graph')",
             name="ck_stage_runs_stage",
         ),
         CheckConstraint(

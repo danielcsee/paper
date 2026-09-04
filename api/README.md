@@ -15,7 +15,7 @@ datastores and applies migrations.
 | [`app/`](app) | FastAPI application object, lifespan wiring, and `Settings` |
 | [`pb_client/`](pb_client) | Clients for the two NCBI services, and the `/pb` routes |
 | [`db/`](db) | SQLAlchemy models, session plumbing, and Alembic migrations |
-| [`ingestion/`](ingestion) | Celery import pipeline and the `/import` routes (stubbed) |
+| [`ingestion/`](ingestion) | Celery import pipeline and the `/import` routes |
 
 ## Dependencies
 
@@ -32,7 +32,7 @@ Postgres, Neo4j and Redis run in Docker (`docker-compose.yml` at the root).
 
 ## Notes
 
-The request path today is NCBI-only: search, download, and fetch an annotated
-paper. `db/` defines the schema and the migrations apply, but nothing writes to
-it yet — `ingestion/` is stubbed, so `/import` raises `NotImplementedError`.
-Neo4j is running but untouched.
+`/import` runs end to end: it fetches a paper from PubTator, stores it chunked
+with its authors, references, entities, mentions and relations, then embeds
+every chunk. Neo4j is running but untouched — building the graph from these
+tables is the next step.
