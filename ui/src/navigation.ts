@@ -24,6 +24,14 @@ export const CORPUS: View = { kind: 'corpus' }
 /** Tab labels are truncated to this many characters, then an ellipsis. */
 export const TAB_TITLE_MAX = 20
 
+/**
+ * How long a newly backgrounded tab wears the selected styling.
+ *
+ * The icon opens a tab somewhere the reader is not looking, so without this
+ * there is no feedback that anything happened.
+ */
+export const TAB_FLASH_MS = 500
+
 export function sameView(a: View, b: View): boolean {
   if (a.kind !== b.kind) return false
   return a.kind !== 'paper' || a.paperId === (b as { paperId: number }).paperId

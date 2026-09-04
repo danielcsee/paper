@@ -155,7 +155,8 @@ body {
 
 .paper-tab:hover { border-color: var(--accent); }
 
-.paper-tab-active {
+.paper-tab-active,
+.paper-tab-flash {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
@@ -171,7 +172,8 @@ body {
   cursor: pointer;
 }
 
-.paper-tab-active .paper-tab-label { color: var(--accent); }
+.paper-tab-active .paper-tab-label,
+.paper-tab-flash .paper-tab-label { color: var(--accent); }
 
 .paper-tab-close {
   padding: 0 8px 0 4px;
@@ -392,10 +394,18 @@ body {
   background: none;
   color: var(--accent);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, box-shadow 0.12s, transform 0.12s;
 }
 
-.open-in-tab:hover { background: var(--accent-soft); }
+.open-in-tab:hover {
+  background: var(--accent-soft);
+  /* Ring plus a nudge in size: clearly stronger than a wash of colour, and it
+     keeps the glyph orange rather than inverting it. */
+  box-shadow: inset 0 0 0 1px var(--accent);
+  transform: scale(1.12);
+}
+
+.open-in-tab:active { transform: scale(0.96); }
 
 .open-in-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 

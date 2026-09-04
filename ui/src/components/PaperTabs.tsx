@@ -4,6 +4,9 @@ import { truncateTitle, type PaperTab, type View } from '../navigation'
 interface Props {
   tabs: PaperTab[]
   active: View
+  /** Tabs briefly wearing the selected styling after being opened in the
+      background. Purely visual — they are not selected. */
+  flashing: ReadonlySet<number>
   onSelect: (paperId: number) => void
   onClose: (paperId: number) => void
 }
@@ -15,7 +18,13 @@ interface Props {
  * these scroll, and the only way to guarantee that is for the overflow to live
  * on a container that does not include it.
  */
-export default function PaperTabs({ tabs, active, onSelect, onClose }: Props) {
+export default function PaperTabs({
+  tabs,
+  active,
+  flashing,
+  onSelect,
+  onClose,
+}: Props) {
   const stripRef = useRef<HTMLDivElement>(null)
   const [overflowing, setOverflowing] = useState(false)
   const activeId = active.kind === 'paper' ? active.paperId : null
@@ -58,10 +67,13 @@ export default function PaperTabs({ tabs, active, onSelect, onClose }: Props) {
       <div className="paper-tabs-strip" ref={stripRef} role="tablist" aria-label="Open papers">
         {tabs.map((tab) => {
           const selected = tab.paperId === activeId
+          const flash = flashing.has(tab.paperId)
           return (
             <span
               key={tab.paperId}
-              className={`paper-tab${selected ? ' paper-tab-active' : ''}`}
+              className={`paper-tab${selected ? ' paper-tab-active' : ''}${
+                flash ? ' paper-tab-flash' : ''
+              }`}
               data-paper-id={tab.paperId}
             >
               <button

@@ -12,6 +12,7 @@ import {
   pathToView,
   sameView,
   saveTabs,
+  TAB_FLASH_MS,
   truncateTitle,
   viewToPath,
   type PaperTab,
@@ -33,6 +34,11 @@ export default function App() {
       : [...stored, { paperId: initial.paperId, title: `Paper ${initial.paperId}` }]
   })
 
+  // Tabs briefly showing the selected styling after being opened in the
+  // background, so the reader gets feedback for a tab they are not looking at.
+  const [flashing, setFlashing] = useState<ReadonlySet<number>>(new Set())
+  const flashTimers = useRef<Map<number, number>>(new Map())
+
   // Papers that 404ed this session. Their tab stays so the reader sees why,
   // but it must not come back after a reload.
   const [missing, setMissing] = useState<ReadonlySet<number>>(new Set())
@@ -41,6 +47,37 @@ export default function App() {
   useEffect(() => {
     saveTabs(tabs.filter((tab) => !missing.has(tab.paperId)))
   }, [tabs, missing])
+
+  // Pending flashes must not fire into an unmounted tree.
+  useEffect(() => {
+    const timers = flashTimers.current
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
+  const flashTab = useCallback((paperId: number) => {
+    const timers = flashTimers.current
+    // Clicking the same icon again restarts the flash rather than letting the
+    // first timer cut the second one short.
+    const running = timers.get(paperId)
+    if (running !== undefined) window.clearTimeout(running)
+
+    setFlashing((prev) => (prev.has(paperId) ? prev : new Set(prev).add(paperId)))
+    timers.set(
+      paperId,
+      window.setTimeout(() => {
+        timers.delete(paperId)
+        setFlashing((prev) => {
+          if (!prev.has(paperId)) return prev
+          const next = new Set(prev)
+          next.delete(paperId)
+          return next
+        })
+      }, TAB_FLASH_MS),
+    )
+  }, [])
 
   // Where the user has been, oldest first. Closing a paper tab pops back
   // through this, which a single "current view" could not answer.
@@ -84,6 +121,7 @@ export default function App() {
    */
   function openPaperInBackground(paperId: number, title: string | null) {
     addTab(paperId, title)
+    flashTab(paperId)
   }
 
   function closePaper(paperId: number) {
@@ -157,6 +195,7 @@ export default function App() {
         <PaperTabs
           tabs={tabs}
           active={view}
+          flashing={flashing}
           onSelect={(paperId) => navigate({ kind: 'paper', paperId })}
           onClose={closePaper}
         />
