@@ -31,7 +31,7 @@ from api.db.models import (
     PaperStageRun,
 )
 from api.ingestion.chunking import Chunk, build_body_text, chunks_from_passages, find_chunk_ordinal
-from api.ingestion.models import PaperProgress
+from api.ingestion.models import PaperProgress, PaperState
 from api.pb_client.models import PaperResponse
 
 #: Re-exported for readability at the call sites in this module. The single
@@ -78,6 +78,27 @@ def import_states(session: Session, pmids: Sequence[int]) -> dict[int, LedgerSta
     return states
 
 
+def derive_state(stages: dict[str, str]) -> PaperState:
+    """Collapse a paper's stage rows into the one state a client renders.
+
+    Order matters. A paper whose earlier stages succeeded and whose later one
+    failed is an error, not a success — so failure is checked first. Then
+    completion of `FINAL_STAGE`, then any sign of work underway; anything left
+    has only pending rows, or none at all.
+    """
+    if not stages:
+        return "queued"
+    if any(status == "failed" for status in stages.values()):
+        return "error"
+    if stages.get(FINAL_STAGE) == "done":
+        return "success"
+    if any(status == "running" for status in stages.values()) or any(
+        status == "done" for status in stages.values()
+    ):
+        return "started"
+    return "queued"
+
+
 def paper_progress(session: Session, pmids: Sequence[int]) -> list[PaperProgress]:
     """Per-stage state for each PMID, in the order given.
 
@@ -108,6 +129,9 @@ def paper_progress(session: Session, pmids: Sequence[int]) -> list[PaperProgress
             entry.stages[stage] = status
             if status == "failed" and entry.error is None:
                 entry.error = error
+
+    for entry in progress.values():
+        entry.state = derive_state(entry.stages)
 
     return [progress[pmid] for pmid in pmids]
 

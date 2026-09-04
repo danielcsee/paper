@@ -1,7 +1,8 @@
 # ui/src
 
 Application source. The layout is flat: an entry point, a root component,
-shared types, navigation, the API client, and [`components/`](components).
+shared types, navigation, import tracking, the API client, and
+[`components/`](components).
 
 ## Files
 
@@ -9,26 +10,25 @@ shared types, navigation, the API client, and [`components/`](components).
 
 **`App.tsx`** — owns chat state, the open paper tabs and the visit stack.
 Closing a paper tab pops that stack, skipping entries whose tab has since
-closed: that is how "go back to where I was" works. Renders the top bar and one
-of chat / corpus / paper beside a permanently mounted `<Sidebar />`.
-`handleSend` still appends a placeholder reply; the retrieval call goes there.
+closed: that is how "go back to where I was" works. `handleSend` calls
+`/corpus/rag_search`; the backend runs no LLM, so answers are ranked evidence.
 
 **`navigation.ts`** — `View`, the tab model, title truncation, the view↔URL
-mapping, and `loadTabs`/`saveTabs`. The corpus UI route is `/my-corpus`,
-kept clear of the `/corpus` API path.
+mapping, and `loadTabs`/`saveTabs`. The corpus UI route is `/my-corpus`, clear
+of the `/corpus` API path. Open tabs persist to `localStorage`; the active view
+does not, since the URL carries it. Reads are validated and access guarded —
+the store throws outright in a private window.
 
-Open tabs persist to `localStorage`; the active view does not, since the URL
-carries it and should win for a shared link. Reads are validated and every
-access guarded — the store throws outright in a private window, and its
-contents may predate this shape.
+**`useImportStatus.ts`** — tracks an import and polls `/import/status` until
+every paper is terminal. Polling, not push: the Celery worker is a separate
+process from the API, so pushing would need a Redis pub/sub bridge, and
+Postgres is already the durable source of truth. Fast ticks first, then backing
+off, with a five-minute cap.
 
-**`api.ts`** — typed access to the `/pb`, `/import` and `/corpus` routes. Its
-interfaces mirror the backend response models, so **changing one there means
-changing this file too**. Throws `ApiError`, which carries the HTTP status so
-callers can tell "gone" from "broken", and accepts an `AbortSignal`.
+**`api.ts`** — typed access to the `/pb`, `/import` and `/corpus` routes,
+mirroring the backend response models, so **changing one there means changing
+this file too**. Throws `ApiError`, which carries the HTTP status.
 
-**`types.ts`** — shared UI types (`Role`, `Message`). API payload types live in
-`api.ts`, next to the calls that return them.
+**`types.ts`** — shared UI types. API payload types live in `api.ts`.
 
-**`styles.css`** — all styling, hand-written. No framework, no CSS modules;
-class names are plain and global.
+**`styles.css`** — all styling, hand-written. No framework, no CSS modules.

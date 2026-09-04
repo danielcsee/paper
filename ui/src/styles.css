@@ -692,8 +692,8 @@ body {
   color: var(--text-dim);
 }
 
-/* The pending row is icon + text on one line. */
-.import-status[role="status"]:has(> .spinner) {
+/* The "queuing…" state is icon + text on one line; the tracked list is not. */
+.import-status:has(> .spinner) {
   flex-direction: row;
   align-items: center;
   gap: 9px;
@@ -722,11 +722,51 @@ body {
 
 .import-dismiss:hover { color: var(--accent); }
 
-.import-rejected {
+/* Up to MAX_BATCH rows, so it scrolls rather than squeezing the results out. */
+.import-list {
+  list-style: none;
   margin: 0;
-  padding-left: 16px;
-  font-size: 11.5px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  max-height: 210px;
+  overflow-y: auto;
 }
+
+.import-row { display: flex; align-items: flex-start; gap: 8px; }
+
+.import-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+}
+
+/* White needs a border of its own: the sidebar surface is white in the light
+   theme, so an unbordered white dot would be invisible there. */
+.import-dot-queued { background: #ffffff; border-color: var(--border); }
+.import-dot-started { background: #d9a520; }
+.import-dot-error { background: #c8462f; }
+.import-dot-success { background: #3f9160; }
+
+.import-row-text { display: grid; gap: 1px; min-width: 0; }
+
+.import-row-title {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.import-row-state { font-size: 11px; color: var(--text-dim); }
+
+.import-note { margin: 2px 0 0; font-size: 11px; color: var(--text-dim); }
 
 /* ---------- loading ---------- */
 .results-loading {

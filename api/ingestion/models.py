@@ -10,6 +10,12 @@ from api.pb_client.models import SearchResult
 
 ImportStatus = Literal["queued", "in_progress", "already_imported", "rejected"]
 
+#: One paper's overall progress, collapsed from its per-stage ledger rows.
+#: Derived here rather than in the UI: "which stage is last" is a backend fact,
+#: and adding the Neo4j `graph` stage must not silently change what a client
+#: considers finished.
+PaperState = Literal["queued", "started", "success", "error"]
+
 #: Cap on one request. Every queued paper becomes a PubTator fetch, and the
 #: worker is rate-limited to ~3/s, so an unbounded batch is a long queue rather
 #: than a fast import.
@@ -54,7 +60,10 @@ class PaperProgress(BaseModel):
 
     pmid: int
     paper_id: Optional[int] = None
+    #: Raw ledger rows, kept for debugging and for anything that wants detail.
     stages: dict[str, str] = Field(default_factory=dict)
+    #: The collapsed view a client should render.
+    state: PaperState = "queued"
     error: Optional[str] = None
 
 

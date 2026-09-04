@@ -1,19 +1,32 @@
-import type { ImportJobStatus, ImportResponse } from '../api'
+import type { PaperState } from '../api'
+import type { TrackedPaper } from '../useImportStatus'
 
 interface Props {
   pending: boolean
   /** Number of papers in the request that is in flight. */
   pendingCount: number
-  result: ImportResponse | null
+  papers: TrackedPaper[]
+  polling: boolean
+  /** Polling stopped with work still unfinished. */
+  gaveUp: boolean
   error: string | null
   onDismiss: () => void
 }
 
-/** Outcome of the most recent /import call, shown under the search bar. */
+const STATE_LABEL: Record<PaperState, string> = {
+  queued: 'Queued',
+  started: 'Importing',
+  success: 'Imported',
+  error: 'Failed',
+}
+
+/** Live progress for the most recent import, one row per paper. */
 export default function ImportStatus({
   pending,
   pendingCount,
-  result,
+  papers,
+  polling,
+  gaveUp,
   error,
   onDismiss,
 }: Props) {
@@ -39,37 +52,48 @@ export default function ImportStatus({
     )
   }
 
-  if (!result) return null
+  if (papers.length === 0) return null
 
-  const count = (status: ImportJobStatus) =>
-    result.jobs.filter((job) => job.status === status).length
-  const rejected = result.jobs.filter((job) => job.status === 'rejected')
-
-  // Every status is named here, so a paper can never vanish from the summary.
-  const parts = [
-    `${count('queued')} queued`,
-    count('in_progress') > 0 ? `${count('in_progress')} already running` : null,
-    count('already_imported') > 0 ? `${count('already_imported')} already imported` : null,
-    rejected.length > 0 ? `${rejected.length} rejected` : null,
-  ].filter(Boolean)
+  const done = papers.filter((paper) => paper.state === 'success').length
+  const failed = papers.filter((paper) => paper.state === 'error').length
 
   return (
     <div className="import-status" role="status" aria-live="polite">
       <div className="import-summary">
-        <span>{parts.join(' · ')}</span>
+        <span>
+          {done}/{papers.length} imported
+          {failed > 0 ? ` · ${failed} failed` : ''}
+          {polling ? ' · working…' : ''}
+        </span>
         <button className="import-dismiss" type="button" onClick={onDismiss}>
           Dismiss
         </button>
       </div>
-      {rejected.length > 0 && (
-        <ul className="import-rejected">
-          {rejected.map((job, index) => (
-            <li key={job.pmid ?? `rejected-${index}`}>
-              {job.pmid != null ? `PMID ${job.pmid}: ` : ''}
-              {job.reason ?? 'rejected'}
-            </li>
-          ))}
-        </ul>
+
+      <ul className="import-list">
+        {papers.map((paper, index) => (
+          <li key={paper.pmid ?? `rejected-${index}`} className="import-row">
+            <span
+              className={`import-dot import-dot-${paper.state}`}
+              aria-hidden="true"
+            />
+            <span className="import-row-text">
+              <span className="import-row-title" title={paper.title}>
+                {paper.title}
+              </span>
+              <span className="import-row-state">
+                {STATE_LABEL[paper.state]}
+                {paper.reason ? ` — ${paper.reason}` : ''}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {gaveUp && (
+        <p className="import-note">
+          Still running after five minutes — reopen later to check.
+        </p>
       )}
     </div>
   )

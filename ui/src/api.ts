@@ -91,6 +91,43 @@ export interface ImportResponse {
   jobs: ImportJob[]
 }
 
+/** A paper's overall progress, collapsed by the backend from its stage rows. */
+export type PaperState = 'queued' | 'started' | 'success' | 'error'
+
+export interface PaperProgress {
+  pmid: number
+  paper_id: number | null
+  stages: Record<string, string>
+  state: PaperState
+  error: string | null
+}
+
+export interface ImportStatusResponse {
+  papers: PaperProgress[]
+}
+
+/** Poll the ingestion ledger for the papers still in flight. */
+export async function fetchImportStatus(
+  pmids: number[],
+  signal?: AbortSignal,
+): Promise<ImportStatusResponse> {
+  const params = new URLSearchParams()
+  for (const pmid of pmids) params.append('pmids', String(pmid))
+  const response = await fetch(`/import/status?${params}`, { signal })
+
+  if (!response.ok) {
+    let detail = `could not read import status (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, response.status)
+  }
+  return (await response.json()) as ImportStatusResponse
+}
+
 /** Queue the selected papers for ingestion. */
 export async function importPapers(
   papers: SearchResult[],
