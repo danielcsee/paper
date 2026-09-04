@@ -1,9 +1,10 @@
 # api/corpus
 
-The user's corpus: every paper that finished importing.
+Reads over papers that finished importing.
 
 ```
 GET /corpus?page=1&page_size=20   ->  CorpusPage        (the listing)
+GET /corpus/rag_search?query=...  ->  RagSearchResponse (ranked papers)
 GET /corpus/{paper_id}            ->  CorpusPaperDetail (one whole paper)
 ```
 
@@ -13,34 +14,33 @@ Read-only: `api.ingestion` writes these tables, this package reads them.
 
 | File | Purpose |
 |---|---|
-| `routes.py` | The two GET routes: paging and validation |
-| `queries.py` | The reads, testable without HTTP |
-| `models.py` | `CorpusPaper`, `CorpusPage`, `CorpusPaperDetail` |
+| `routes.py` | The three GET routes: paging and validation |
+| `queries.py` | The listing/detail reads, testable without HTTP |
+| `rag.py` | Retrieval: score chunks, aggregate per paper, rank |
+| `models.py` | Response models for all three routes |
 
 ## Decisions worth knowing
 
-**"Imported" means the final stage is done.** Both routes join
-`paper_stage_runs` rather than reading `papers`: a `papers` row exists from the
-moment `/import` reserves one, long before the paper has content.
+**"Imported" means the final stage is done.** Every route joins
+`paper_stage_runs`, not `papers`: a row exists there from the moment `/import`
+reserves one, long before the paper has content.
 
-**Ordering is `finished_at DESC, id DESC`.** The id breaks ties: without a
-total order, two papers finishing in the same instant could appear on two pages
-or on neither as the reader scrolls.
+**`rag_search` is registered before `/corpus/{paper_id}`.** FastAPI matches in
+order, and "rag_search" against an `int` path parameter is a 422.
 
-**`chunk_type` is what makes the reader possible.** `section_type` alone cannot
-tell a heading ("Background") from body text; PubTator's passage `type` can.
+**Retrieval only — no LLM.** Chunks below `RAG_SCORE_THRESHOLD` (0.55) are
+dropped, survivors are summed per paper, and the top three come back with their
+strongest excerpts. The scan is exhaustive: the HNSW index answers "nearest k",
+which cannot express "all above a cutoff".
 
-**Authors, snippets and chunk counts are one query each per page**, not one per
-paper.
+**The aggregator is a named function**, not an inline `sum()`. `sum` rewards
+length: measured here the mean surviving score barely differs between papers,
+so nearly all the separation comes from how *many* chunks survive.
+`AGGREGATORS` also holds `max` and `mean`.
 
-**A page past the end returns an empty list, not a 404.** Running off the end
-is normal for an infinite scroll. The detail route *does* 404, for a paper
-absent *or* unfinished — a reader must not get a half-ingested document.
-
-`CorpusPaper` mirrors the fields a search result exposes, so the frontend
-renders both with the same `PaperCard`.
+**Listing order is `finished_at DESC, id DESC`**; the id breaks ties so no
+paper lands on two pages as the reader scrolls.
 
 ## Dependencies
 
-`api.db` for the models and session, `fastapi`, `pydantic`. Nothing here
-reaches the network.
+`api.db`, `api.ingestion.embedding` (query vector), `fastapi`, `pydantic`.

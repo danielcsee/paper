@@ -210,6 +210,19 @@ body {
   text-align: center;
 }
 
+/* The landing block slides up and fades before results take its place; the
+   duration is mirrored by LANDING_EXIT_MS in ChatWindow.tsx. */
+.landing-exit {
+  opacity: 0;
+  transform: translateY(-26px);
+  transition: opacity 0.32s ease, transform 0.32s ease;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-exit { transition-duration: 0.01s; transform: none; }
+}
+
 .landing-title {
   margin: 0 0 10px;
   font-size: 27px;
@@ -269,6 +282,39 @@ body {
 .message-user .message-role { color: var(--accent); }
 
 .message-body { white-space: pre-wrap; }
+
+/* ---------- rag answers ---------- */
+.rag-pending { display: inline-flex; align-items: center; gap: 9px; color: var(--text-dim); }
+
+.rag-text { margin: 0; }
+
+.message-assistant .results-error,
+.rag-empty { margin: 0; color: var(--text-dim); }
+
+.rag-lead { margin: 0 0 10px; font-size: 13px; color: var(--text-dim); }
+
+.rag-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+
+/* An excerpt is evidence for the ranking, so it reads as a quotation rather
+   than as the answer itself. */
+.rag-quote {
+  margin: 6px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--accent);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: normal;
+}
+
+.rag-quote-section {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+}
 
 /* ---------- composer ---------- */
 .composer {

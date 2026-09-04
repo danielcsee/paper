@@ -230,3 +230,54 @@ export async function fetchPaper(
   }
   return (await response.json()) as PaperDetail
 }
+
+// --- rag search ---
+
+export interface RagChunk {
+  chunk_id: number
+  section_type: string | null
+  text: string
+  score: number
+}
+
+export interface RagPaper {
+  paper_id: number
+  pmid: number
+  pmcid: string | null
+  title: string | null
+  journal: string | null
+  pub_year: number | null
+  score: number
+  matched_chunks: number
+  best_score: number
+  chunks: RagChunk[]
+}
+
+export interface RagSearchResponse {
+  query: string
+  threshold: number
+  aggregator: string
+  chunks_considered: number
+  papers: RagPaper[]
+}
+
+/** Retrieval only — the backend runs no LLM, so this returns ranked papers. */
+export async function ragSearch(
+  query: string,
+  signal?: AbortSignal,
+): Promise<RagSearchResponse> {
+  const params = new URLSearchParams({ query })
+  const response = await fetch(`/corpus/rag_search?${params}`, { signal })
+
+  if (!response.ok) {
+    let detail = `search failed (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, response.status)
+  }
+  return (await response.json()) as RagSearchResponse
+}

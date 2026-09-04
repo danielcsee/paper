@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     #: invalidates every stored embedding via the stage fingerprint.
     embedding_model: str = "BAAI/bge-base-en-v1.5"
     embedding_batch_size: int = 32
+    # --- RAG search ---
+    #: Chunks scoring below this cosine similarity are discarded before any
+    #: paper is scored. Calibrated on this corpus with the bge query prefix,
+    #: over 4 on-topic and 3 off-topic queries: the worst on-topic best-chunk
+    #: scored 0.660, the best off-topic one 0.444, and 0.55 is the midpoint of
+    #: that gap. At 0.55 the off-topic queries keep zero chunks.
+    #:
+    #: It is an *absolute* cutoff, so the margin narrows as the corpus grows —
+    #: more chunks means more chances at a spuriously high score. Override with
+    #: RAG_SCORE_THRESHOLD while we work out whether top-k is better.
+    rag_score_threshold: float = 0.55
+    #: Papers returned per search.
+    rag_top_papers: int = 3
+    #: Best-matching chunks returned per paper, as evidence for the ranking.
+    rag_chunks_per_paper: int = 3
+
     #: torch device for the encoder. None lets sentence-transformers choose,
     #: which is "mps" on Apple silicon. Set to "cpu" when the worker must run
     #: in a forked process — Metal cannot be initialised after fork.

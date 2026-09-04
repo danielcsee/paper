@@ -88,3 +88,42 @@ class CorpusPaperDetail(BaseModel):
     #: In document order. The article title is excluded — it is `title`.
     paragraphs: list[PaperParagraph] = Field(default_factory=list)
     references: list[PaperReferenceOut] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
+# RAG search
+# --------------------------------------------------------------------------
+
+
+class RagChunk(BaseModel):
+    """One matching excerpt, as evidence for why a paper ranked where it did."""
+
+    chunk_id: int
+    section_type: Optional[str] = None
+    text: str
+    score: float
+
+
+class RagPaper(BaseModel):
+    paper_id: int
+    pmid: int
+    pmcid: Optional[str] = None
+    title: Optional[str] = None
+    journal: Optional[str] = None
+    pub_year: Optional[int] = None
+    #: The aggregated score the ranking used.
+    score: float
+    #: How many chunks cleared the threshold. With the `sum` aggregator this
+    #: largely *is* the score, which is worth being able to see.
+    matched_chunks: int
+    best_score: float
+    chunks: list[RagChunk] = Field(default_factory=list)
+
+
+class RagSearchResponse(BaseModel):
+    query: str
+    #: Echoed so a caller can tell "nothing matched" from "the bar was high".
+    threshold: float
+    aggregator: str
+    chunks_considered: int
+    papers: list[RagPaper] = Field(default_factory=list)

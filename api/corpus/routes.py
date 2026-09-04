@@ -12,13 +12,16 @@ from math import ceil
 
 from fastapi import APIRouter, HTTPException, Path, Query
 
-from api.corpus import queries
+from api.corpus import queries, rag
 from api.corpus.models import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     CorpusPage,
     CorpusPaperDetail,
+    RagSearchResponse,
 )
+from api.app.config import get_settings
+from api.ingestion.embedding import embed_query
 from api.db import session_scope
 
 log = logging.getLogger(__name__)
@@ -55,6 +58,48 @@ def list_corpus(
         total_pages=ceil(total / page_size) if total else 0,
         papers=papers,
     )
+
+
+@router.get(
+    "/corpus/rag_search",
+    response_model=RagSearchResponse,
+    summary="Rank imported papers against a query",
+)
+def rag_search(
+    query: str = Query(..., min_length=2, description="Free-text question."),
+) -> RagSearchResponse:
+    """Retrieval only: no LLM, no generated answer.
+
+    Every stored chunk is scored against the query, anything below
+    `rag_score_threshold` is discarded, the survivors are aggregated per paper,
+    and the best few papers come back with their strongest excerpts.
+
+    Registered before `/corpus/{paper_id}`: FastAPI matches routes in order,
+    and "rag_search" against an int path parameter is a 422.
+    """
+    settings = get_settings()
+    text = query.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="query must not be blank")
+
+    vector = embed_query(text)
+    with session_scope() as session:
+        result = rag.search(
+            session,
+            text,
+            vector,
+            threshold=settings.rag_score_threshold,
+            top_papers=settings.rag_top_papers,
+            chunks_per_paper=settings.rag_chunks_per_paper,
+        )
+    log.info(
+        "rag_search %r -> %d papers from %d chunks over %.2f",
+        text,
+        len(result.papers),
+        result.chunks_considered,
+        result.threshold,
+    )
+    return result
 
 
 @router.get(

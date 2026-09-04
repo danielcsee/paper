@@ -56,6 +56,21 @@ def count_tokens(text: str) -> int:
     return len(get_model().tokenizer.encode(text, add_special_tokens=True))
 
 
+#: bge is trained asymmetrically: the instruction goes on the *query*, never on
+#: the documents. Ours were embedded bare, which is the matching half of this.
+QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
+
+
+def embed_query(query: str) -> list[float]:
+    """Encode a search query, with the instruction prefix bge expects.
+
+    Absolute similarities come out roughly 0.05 lower than for an unprefixed
+    query (measured: 0.742 -> 0.688 on the same text), so a threshold tuned
+    against one convention does not transfer to the other.
+    """
+    return embed_texts([QUERY_INSTRUCTION + query.strip()])[0]
+
+
 def embed_texts(texts: Sequence[str]) -> list[list[float]]:
     """Encode chunk texts into normalised vectors of `EMBEDDING_DIM`.
 

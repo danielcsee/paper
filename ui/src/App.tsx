@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PaperDetail } from './api'
+import { ApiError, ragSearch, type PaperDetail } from './api'
 import ChatWindow from './components/ChatWindow'
 import CorpusView from './components/CorpusView'
 import PaperTabs from './components/PaperTabs'
@@ -162,16 +162,47 @@ export default function App() {
     )
   }, [])
 
-  function handleSend(text: string) {
+  /**
+   * Ask the corpus. Retrieval only — the backend runs no LLM, so the answer is
+   * the ranked evidence rather than prose.
+   *
+   * The assistant message is appended immediately in a pending state and then
+   * filled in, so the question and a spinner appear at once instead of the
+   * user staring at their own message alone.
+   */
+  async function handleSend(text: string) {
+    const answerId = crypto.randomUUID()
     setMessages((prev) => [
       ...prev,
       { id: crypto.randomUUID(), role: 'user', text },
-      {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: 'The retrieval pipeline is not wired up yet — this is the UI shell only.',
-      },
+      { id: answerId, role: 'assistant', text: 'Searching your corpus…', status: 'pending' },
     ])
+
+    const replace = (patch: Partial<Message>) =>
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === answerId ? { ...message, ...patch } : message,
+        ),
+      )
+
+    try {
+      const response = await ragSearch(text)
+      replace({
+        status: 'done',
+        text: '',
+        results: response.papers,
+        chunksConsidered: response.chunks_considered,
+      })
+    } catch (err) {
+      replace({
+        status: 'error',
+        text:
+          err instanceof ApiError
+            ? err.message
+            : 'Could not reach the search service.',
+        results: undefined,
+      })
+    }
   }
 
   return (
@@ -221,7 +252,11 @@ export default function App() {
             }
           />
         ) : (
-          <ChatWindow messages={messages} onSend={handleSend} />
+          <ChatWindow
+            messages={messages}
+            onSend={(text) => void handleSend(text)}
+            onOpenPaper={(paperId, title) => openPaper(paperId, truncateTitle(title, 200))}
+          />
         )}
         <Sidebar />
       </main>
