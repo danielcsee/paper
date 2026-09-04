@@ -7,10 +7,11 @@ const SCROLL_MARGIN = '320px'
 
 interface Props {
   onClose: () => void
+  onOpenPaper: (paperId: number, title: string | null) => void
 }
 
 /** Every paper that finished importing, newest first, in one infinite column. */
-export default function CorpusView({ onClose }: Props) {
+export default function CorpusView({ onClose, onOpenPaper }: Props) {
   const [papers, setPapers] = useState<CorpusPaper[]>([])
   const [page, setPage] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
@@ -105,7 +106,12 @@ export default function CorpusView({ onClose }: Props) {
         <ul className="corpus-list">
           {papers.map((paper) => (
             <li key={paper.paper_id}>
-              <article className="chip chip-static">
+              <button
+                type="button"
+                className="chip chip-openable"
+                onClick={() => onOpenPaper(paper.paper_id, paper.title)}
+                title="Open paper"
+              >
                 <PaperCard
                   title={paper.title}
                   journal={paper.journal}
@@ -115,7 +121,7 @@ export default function CorpusView({ onClose }: Props) {
                   pmcid={paper.pmcid}
                   extra={`${paper.chunk_count} chunk${paper.chunk_count === 1 ? '' : 's'}`}
                 />
-              </article>
+              </button>
             </li>
           ))}
         </ul>

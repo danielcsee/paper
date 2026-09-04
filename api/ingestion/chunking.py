@@ -26,6 +26,8 @@ class Chunk:
 
     ordinal: int
     section_type: Optional[str]
+    #: PubTator's passage `type`: what distinguishes a heading from a paragraph.
+    chunk_type: Optional[str]
     char_start: int
     char_end: int
     text: str
@@ -51,6 +53,7 @@ def chunks_from_passages(passages: Sequence[Passage]) -> list[Chunk]:
             Chunk(
                 ordinal=len(chunks),
                 section_type=passage.section_type,
+                chunk_type=passage.type,
                 char_start=passage.offset,
                 char_end=passage.offset + len(text),
                 text=text,

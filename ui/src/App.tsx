@@ -1,14 +1,99 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PaperDetail } from './api'
 import ChatWindow from './components/ChatWindow'
 import CorpusView from './components/CorpusView'
+import PaperTabs from './components/PaperTabs'
+import PaperView from './components/PaperView'
 import Sidebar from './components/Sidebar'
+import {
+  CHAT,
+  CORPUS,
+  pathToView,
+  sameView,
+  truncateTitle,
+  viewToPath,
+  type PaperTab,
+  type View,
+} from './navigation'
 import type { Message } from './types'
-
-type View = 'chat' | 'corpus'
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
-  const [view, setView] = useState<View>('chat')
+  const [tabs, setTabs] = useState<PaperTab[]>(() => {
+    // A shared /paper/12 link should open that tab, with a placeholder label
+    // until PaperView reports the real title.
+    const initial = pathToView(window.location.pathname)
+    return initial.kind === 'paper'
+      ? [{ paperId: initial.paperId, title: `Paper ${initial.paperId}` }]
+      : []
+  })
+  const [view, setView] = useState<View>(() => pathToView(window.location.pathname))
+
+  // Where the user has been, oldest first. Closing a paper tab pops back
+  // through this, which a single "current view" could not answer.
+  const historyRef = useRef<View[]>([])
+
+  const navigate = useCallback((next: View, { push = true } = {}) => {
+    setView((current) => {
+      if (sameView(current, next)) return current
+      historyRef.current = [...historyRef.current.slice(-19), current]
+      if (push) {
+        const path = viewToPath(next)
+        if (path !== window.location.pathname) window.history.pushState({}, '', path)
+      }
+      return next
+    })
+  }, [])
+
+  // Browser back/forward.
+  useEffect(() => {
+    const onPop = () => setView(pathToView(window.location.pathname))
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  function openPaper(paperId: number, title: string | null) {
+    setTabs((prev) =>
+      prev.some((tab) => tab.paperId === paperId)
+        ? prev
+        : [...prev, { paperId, title: title ?? `Paper ${paperId}` }],
+    )
+    navigate({ kind: 'paper', paperId })
+  }
+
+  function closePaper(paperId: number) {
+    const remaining = tabs.filter((tab) => tab.paperId !== paperId)
+    setTabs(remaining)
+
+    // Closing a background tab must not move the user.
+    if (view.kind !== 'paper' || view.paperId !== paperId) {
+      historyRef.current = historyRef.current.filter(
+        (entry) => entry.kind !== 'paper' || entry.paperId !== paperId,
+      )
+      return
+    }
+
+    // Fall back to the most recent view that still exists.
+    const open = new Set(remaining.map((tab) => tab.paperId))
+    const stack = historyRef.current.filter(
+      (entry) => entry.kind !== 'paper' || open.has(entry.paperId),
+    )
+    const previous = stack.pop() ?? CHAT
+    historyRef.current = stack
+    setView(previous)
+    const path = viewToPath(previous)
+    if (path !== window.location.pathname) window.history.pushState({}, '', path)
+  }
+
+  const handleLoaded = useCallback((paper: PaperDetail) => {
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.paperId === paper.paper_id && paper.title
+          ? { ...tab, title: paper.title }
+          : tab,
+      ),
+    )
+  }, [])
 
   function handleSend(text: string) {
     setMessages((prev) => [
@@ -29,24 +114,40 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true" />
           <span className="brand-name">litgraph</span>
         </div>
+        {/* The fixed tab sits outside PaperTabs so it never scrolls with them. */}
         <nav className="tabs">
           <button
             type="button"
-            className={`tab${view === 'corpus' ? ' tab-active' : ''}`}
-            aria-current={view === 'corpus' ? 'page' : undefined}
-            onClick={() => setView('corpus')}
+            className={`tab${view.kind === 'corpus' ? ' tab-active' : ''}`}
+            aria-current={view.kind === 'corpus' ? 'page' : undefined}
+            onClick={() => navigate(CORPUS)}
           >
             My Corpus
           </button>
         </nav>
+        <PaperTabs
+          tabs={tabs}
+          active={view}
+          onSelect={(paperId) => navigate({ kind: 'paper', paperId })}
+          onClose={closePaper}
+        />
         <span className="brand-tagline">GraphRAG over scientific literature</span>
       </header>
 
       <main className="layout">
         {/* The sidebar stays mounted across views: switching must not throw
             away a search, its scroll position, or a pending selection. */}
-        {view === 'corpus' ? (
-          <CorpusView onClose={() => setView('chat')} />
+        {view.kind === 'paper' ? (
+          <PaperView
+            key={view.paperId}
+            paperId={view.paperId}
+            onLoaded={handleLoaded}
+          />
+        ) : view.kind === 'corpus' ? (
+          <CorpusView
+            onClose={() => navigate(CHAT)}
+            onOpenPaper={(paperId, title) => openPaper(paperId, truncateTitle(title, 200))}
+          />
         ) : (
           <ChatWindow messages={messages} onSend={handleSend} />
         )}

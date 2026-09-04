@@ -10,10 +10,15 @@ from __future__ import annotations
 import logging
 from math import ceil
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 
 from api.corpus import queries
-from api.corpus.models import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, CorpusPage
+from api.corpus.models import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    CorpusPage,
+    CorpusPaperDetail,
+)
 from api.db import session_scope
 
 log = logging.getLogger(__name__)
@@ -50,3 +55,21 @@ def list_corpus(
         total_pages=ceil(total / page_size) if total else 0,
         papers=papers,
     )
+
+
+@router.get(
+    "/corpus/{paper_id}",
+    response_model=CorpusPaperDetail,
+    summary="Read one imported paper",
+)
+def read_paper(paper_id: int = Path(..., ge=1)) -> CorpusPaperDetail:
+    """The whole paper: metadata, authors, paragraphs in order, references.
+
+    404 for a paper that does not exist *or* has not finished importing — the
+    reader must not be handed a half-ingested document.
+    """
+    with session_scope() as session:
+        paper = queries.get_paper(session, paper_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail=f"paper {paper_id} is not in your corpus")
+    return paper

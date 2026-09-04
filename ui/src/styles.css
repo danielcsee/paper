@@ -52,9 +52,11 @@ body {
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  /* The paper tab strip scrolls inside itself; the bar itself never does. */
+  overflow: hidden;
 }
 
-.brand { display: flex; align-items: center; gap: 9px; }
+.brand { display: flex; align-items: center; gap: 9px; flex: none; }
 
 .brand-mark {
   width: 11px;
@@ -66,13 +68,22 @@ body {
 .brand-name { font-weight: 620; letter-spacing: -0.01em; }
 
 .brand-tagline {
+  flex: none;
   margin-left: auto;
+  padding-left: 14px;
   color: var(--text-dim);
   font-size: 13px;
+  white-space: nowrap;
+}
+
+/* The tagline is decoration; tabs are not. Drop it when the bar gets busy. */
+@media (max-width: 1100px) {
+  .brand-tagline { display: none; }
 }
 
 /* ---------- tabs ---------- */
-.tabs { display: flex; gap: 4px; padding-left: 10px; margin-left: 10px;
+/* Fixed: never shrinks, never scrolls with the paper tabs. */
+.tabs { display: flex; flex: none; gap: 4px; padding-left: 10px; margin-left: 10px;
         border-left: 1px solid var(--border); }
 
 .tab {
@@ -94,6 +105,86 @@ body {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+
+/* ---------- paper tabs (the scrolling half of the bar) ---------- */
+.paper-tabs {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.paper-tabs-strip {
+  display: flex;
+  flex: 1;
+  /* Without this a flex item's min-width is auto, so the strip refuses to
+     shrink below its content, pushes the brand off the bar, and never
+     scrolls — defeating its own overflow-x. */
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 3px 18px 3px 2px;
+}
+
+.paper-tabs-strip::-webkit-scrollbar { display: none; }
+
+/* Orange fade marking that the strip continues past the right edge. */
+.paper-tabs-fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 34px;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--accent-soft) 65%, var(--accent-soft));
+}
+
+.paper-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 190px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.paper-tab:hover { border-color: var(--accent); }
+
+.paper-tab-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.paper-tab-label {
+  padding: 4px 4px 4px 10px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.paper-tab-active .paper-tab-label { color: var(--accent); }
+
+.paper-tab-close {
+  padding: 0 8px 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.paper-tab-close:hover { color: var(--accent); }
 
 /* ---------- layout ---------- */
 .layout {
@@ -277,12 +368,68 @@ body {
   gap: 10px;
 }
 
-/* A corpus entry is not selectable, so it must not read as clickable. */
-.chip-static { cursor: default; }
-.chip-static:hover { border-color: var(--border); background: var(--surface); }
+/* A corpus entry opens the paper, so it keeps the clickable affordance. */
+.chip-openable { cursor: pointer; }
 
 .corpus-scroll .results-message,
 .corpus-scroll .results-loading { max-width: 768px; margin-inline: auto; }
+
+/* ---------- paper view ---------- */
+.paper { display: flex; flex-direction: column; min-height: 0; }
+
+.paper-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 24px 60px; }
+
+/* A measure of roughly 70 characters, which is what makes long prose readable. */
+.paper-doc { max-width: 720px; margin: 0 auto; }
+
+.paper-doc-header { padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+
+.paper-doc-title {
+  margin: 0 0 12px;
+  font-size: 25px;
+  line-height: 1.3;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+.paper-doc-authors { margin: 0 0 6px; font-size: 14px; line-height: 1.6; }
+
+.paper-doc-citation,
+.paper-doc-ids { margin: 0; font-size: 12.5px; color: var(--text-dim); }
+
+.paper-doc-ids { margin-top: 4px; }
+
+.paper-doc-section {
+  margin: 30px 0 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.paper-doc-heading { margin: 20px 0 6px; font-size: 15.5px; font-weight: 620; }
+
+.paper-doc-para {
+  margin: 0 0 13px;
+  font-size: 15px;
+  line-height: 1.72;
+  text-align: justify;
+  hyphens: auto;
+}
+
+.paper-doc-reflist {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.paper-ref-title { display: block; line-height: 1.5; }
+.paper-ref-meta { display: block; margin-top: 2px; font-size: 12px; color: var(--text-dim); }
 
 /* ---------- sidebar ---------- */
 .sidebar {

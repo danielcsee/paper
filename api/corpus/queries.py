@@ -11,8 +11,19 @@ from typing import Optional, Sequence
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from api.corpus.models import CorpusPaper
-from api.db.models import Paper, PaperAuthor, PaperChunk, PaperStageRun
+from api.corpus.models import (
+    CorpusPaper,
+    CorpusPaperDetail,
+    PaperParagraph,
+    PaperReferenceOut,
+)
+from api.db.models import (
+    Paper,
+    PaperAuthor,
+    PaperChunk,
+    PaperReference,
+    PaperStageRun,
+)
 
 #: How much of a chunk to keep for the preview card.
 SNIPPET_CHARS = 240
@@ -130,3 +141,69 @@ def _truncate(text: Optional[str]) -> Optional[str]:
     if len(collapsed) <= SNIPPET_CHARS:
         return collapsed
     return collapsed[:SNIPPET_CHARS].rstrip() + "…"
+
+
+def get_paper(session: Session, paper_id: int) -> Optional[CorpusPaperDetail]:
+    """One whole paper, or None when it is absent or not finished importing.
+
+    Same membership rule as the listing: a paper reserved by `/import` but not
+    yet ingested exists in `papers` and must not be readable.
+    """
+    row = session.execute(
+        _imported_papers().where(Paper.id == paper_id)
+    ).first()
+    if row is None:
+        return None
+    paper, finished_at = row
+
+    chunks = session.execute(
+        select(PaperChunk.ordinal, PaperChunk.section_type, PaperChunk.chunk_type, PaperChunk.text)
+        .where(PaperChunk.paper_id == paper_id)
+        .order_by(PaperChunk.ordinal)
+    ).all()
+
+    references = session.execute(
+        select(PaperReference)
+        .where(PaperReference.paper_id == paper_id)
+        .order_by(PaperReference.ordinal)
+    ).scalars().all()
+
+    return CorpusPaperDetail(
+        paper_id=paper.id,
+        pmid=paper.pmid,
+        pmcid=paper.pmcid,
+        title=paper.title,
+        journal=paper.journal,
+        journal_title=paper.journal_title,
+        pub_year=paper.pub_year,
+        volume=paper.volume,
+        fpage=paper.fpage,
+        lpage=paper.lpage,
+        doi=paper.doi,
+        has_full_text=paper.has_full_text,
+        imported_at=finished_at,
+        authors=_authors_by_paper(session, [paper_id]).get(paper_id, []),
+        paragraphs=[
+            PaperParagraph(
+                ordinal=ordinal, section_type=section, chunk_type=kind, text=text
+            )
+            # The article title is rendered from `title`; repeating it as the
+            # first paragraph would print it twice.
+            for ordinal, section, kind, text in chunks
+            if kind != "front"
+        ],
+        references=[
+            PaperReferenceOut(
+                ordinal=r.ordinal,
+                title=r.title,
+                pmid=r.ref_pmid,
+                doi=r.ref_doi,
+                source=r.source,
+                year=r.year,
+                volume=r.volume,
+                fpage=r.fpage,
+                lpage=r.lpage,
+            )
+            for r in references
+        ],
+    )

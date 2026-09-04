@@ -381,6 +381,7 @@ def replace_chunks(session: Session, paper_id: int, chunks: Sequence[Chunk]) -> 
                     "paper_id": paper_id,
                     "ordinal": chunk.ordinal,
                     "section_type": chunk.section_type,
+                    "chunk_type": chunk.chunk_type,
                     "char_start": chunk.char_start,
                     "char_end": chunk.char_end,
                     "text": chunk.text,

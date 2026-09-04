@@ -149,6 +149,10 @@ class PaperChunk(Base):
     )
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     section_type: Mapped[Optional[str]] = mapped_column(String(32))
+    #: PubTator's finer-grained passage kind: front, abstract_title_1, title_1,
+    #: title_2, paragraph, table_caption, ... This is what separates a section
+    #: heading from body text, so a reader can render the paper as a document.
+    chunk_type: Mapped[Optional[str]] = mapped_column(String(32))
     #: Half-open span in PubTator's document coordinate space. A mention belongs
     #: to this chunk when char_start <= mention.char_offset < char_end.
     char_start: Mapped[int] = mapped_column(Integer, nullable=False)
