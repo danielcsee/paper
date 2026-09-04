@@ -149,6 +149,10 @@ class PaperChunk(Base):
     )
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     section_type: Mapped[Optional[str]] = mapped_column(String(32))
+    #: PubTator's finer-grained passage kind: front, abstract_title_1, title_1,
+    #: title_2, paragraph, table_caption, ... This is what separates a section
+    #: heading from body text, so a reader can render the paper as a document.
+    chunk_type: Mapped[Optional[str]] = mapped_column(String(32))
     #: Half-open span in PubTator's document coordinate space. A mention belongs
     #: to this chunk when char_start <= mention.char_offset < char_end.
     char_start: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -324,6 +328,11 @@ class PaperStageRun(Base):
     #: that does not exist yet — allowed now so adding it needs no migration.
     STAGES = ("ingest", "embed", "graph")
     STATUSES = ("pending", "running", "done", "failed", "skipped")
+
+    #: Completing this stage is what "successfully imported" means. Lives here
+    #: rather than in one package because ingestion writes it and corpus reads
+    #: it, and the two must not drift. Moves to 'graph' when that stage exists.
+    FINAL_STAGE = "embed"
 
     paper_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True

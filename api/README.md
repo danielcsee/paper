@@ -16,6 +16,7 @@ datastores and applies migrations.
 | [`pb_client/`](pb_client) | Clients for the two NCBI services, and the `/pb` routes |
 | [`db/`](db) | SQLAlchemy models, session plumbing, and Alembic migrations |
 | [`ingestion/`](ingestion) | Celery import pipeline and the `/import` routes |
+| [`corpus/`](corpus) | Read-only `/corpus` listing of imported papers |
 
 ## Dependencies
 

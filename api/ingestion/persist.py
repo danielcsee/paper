@@ -34,9 +34,9 @@ from api.ingestion.chunking import Chunk, build_body_text, chunks_from_passages,
 from api.ingestion.models import PaperProgress
 from api.pb_client.models import PaperResponse
 
-#: The stage whose completion means a paper is fully imported. Moves to 'graph'
-#: when the Neo4j step exists; until then 'embed' is the chain's last stage.
-FINAL_STAGE = "embed"
+#: Re-exported for readability at the call sites in this module. The single
+#: definition lives on the model, because `api.corpus` reads it too.
+FINAL_STAGE = PaperStageRun.FINAL_STAGE
 
 #: Stage statuses that mean a chain is still working on a paper.
 ACTIVE_STATUSES = ("pending", "running")
@@ -381,6 +381,7 @@ def replace_chunks(session: Session, paper_id: int, chunks: Sequence[Chunk]) -> 
                     "paper_id": paper_id,
                     "ordinal": chunk.ordinal,
                     "section_type": chunk.section_type,
+                    "chunk_type": chunk.chunk_type,
                     "char_start": chunk.char_start,
                     "char_end": chunk.char_end,
                     "text": chunk.text,

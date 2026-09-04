@@ -1,23 +1,25 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// In dev the UI is served by Vite on 5173 and proxies /api to FastAPI on 8000.
-// In production `npm run build` emits ./dist, which FastAPI serves directly.
+// Paths owned by FastAPI. Anchored patterns, not bare prefixes: Vite treats a
+// string key as a prefix, so '/corpus' would also swallow the UI route
+// '/my-corpus'. The pattern is matched against path *and* query, so '\?' must
+// be an accepted terminator or '/corpus?page=1' silently misses the proxy and
+// the browser gets index.html where it expected JSON.
+const API_PATTERNS = ['^/pb(/|\\?|$)', '^/import(/|\\?|$)', '^/corpus(/|\\?|$)', '^/api(/|\\?|$)']
+
+const target = `http://127.0.0.1:${process.env.API_PORT ?? 8000}`
+
+// In dev the UI is served by Vite on 5173 and proxies the API to FastAPI.
+// In production `npm run build` emits ./dist, which FastAPI serves directly,
+// so these paths are same-origin and no proxy is involved.
 export default defineConfig({
   plugins: [react()],
   server: {
     port: Number(process.env.UI_PORT ?? 5173),
     strictPort: true,
     proxy: Object.fromEntries(
-      // Everything the FastAPI app owns. In production these are same-origin,
-      // because FastAPI serves the built bundle itself.
-      ['/pb', '/import', '/api'].map((prefix) => [
-        prefix,
-        {
-          target: `http://127.0.0.1:${process.env.API_PORT ?? 8000}`,
-          changeOrigin: true,
-        },
-      ]),
+      API_PATTERNS.map((pattern) => [pattern, { target, changeOrigin: true }]),
     ),
   },
   build: { outDir: 'dist', sourcemap: true },

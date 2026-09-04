@@ -24,7 +24,14 @@ export interface SearchResponse {
   results: SearchResult[]
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status = 0) {
+    super(message)
+    this.status = status
+  }
+}
 
 export async function searchPapers(
   text: string,
@@ -43,7 +50,7 @@ export async function searchPapers(
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
   return (await response.json()) as SearchResponse
 }
@@ -104,7 +111,122 @@ export async function importPapers(
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
   return (await response.json()) as ImportResponse
+}
+
+// --- corpus ---
+
+export interface CorpusPaper {
+  paper_id: number
+  pmid: number
+  pmcid: string | null
+  title: string | null
+  journal: string | null
+  pub_year: number | null
+  doi: string | null
+  authors: string[]
+  snippet: string | null
+  chunk_count: number
+  has_full_text: boolean
+  imported_at: string | null
+}
+
+export interface CorpusPage {
+  page: number
+  page_size: number
+  total_papers: number
+  total_pages: number
+  papers: CorpusPaper[]
+}
+
+/** Matches the backend's DEFAULT_PAGE_SIZE. */
+export const CORPUS_PAGE_SIZE = 20
+
+export async function fetchCorpus(
+  page: number,
+  signal?: AbortSignal,
+): Promise<CorpusPage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(CORPUS_PAGE_SIZE),
+  })
+  const response = await fetch(`/corpus?${params}`, { signal })
+
+  if (!response.ok) {
+    let detail = `could not load your corpus (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, response.status)
+  }
+  return (await response.json()) as CorpusPage
+}
+
+export interface PaperParagraph {
+  ordinal: number
+  section_type: string | null
+  /** PubTator's passage kind; anything containing "title" is a heading. */
+  chunk_type: string | null
+  text: string
+}
+
+export interface PaperReference {
+  ordinal: number
+  title: string | null
+  pmid: string | null
+  doi: string | null
+  source: string | null
+  year: string | null
+  volume: string | null
+  fpage: string | null
+  lpage: string | null
+}
+
+export interface PaperDetail {
+  paper_id: number
+  pmid: number
+  pmcid: string | null
+  title: string | null
+  journal: string | null
+  journal_title: string | null
+  pub_year: number | null
+  volume: string | null
+  fpage: string | null
+  lpage: string | null
+  doi: string | null
+  has_full_text: boolean
+  imported_at: string | null
+  authors: string[]
+  paragraphs: PaperParagraph[]
+  references: PaperReference[]
+}
+
+export function isHeading(paragraph: PaperParagraph): boolean {
+  return Boolean(paragraph.chunk_type && paragraph.chunk_type.includes('title'))
+}
+
+export async function fetchPaper(
+  paperId: number,
+  signal?: AbortSignal,
+): Promise<PaperDetail> {
+  const response = await fetch(`/corpus/${paperId}`, { signal })
+  if (!response.ok) {
+    let detail =
+      response.status === 404
+        ? 'That paper is not in your corpus.'
+        : `could not load the paper (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, response.status)
+  }
+  return (await response.json()) as PaperDetail
 }

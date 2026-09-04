@@ -14,7 +14,7 @@ npm --prefix ui run typecheck  # tsc, no output
 
 ## How it reaches the API
 
-In development Vite serves the UI on `5173` and proxies `/pb`, `/import` and `/api` to
+In development Vite serves the UI on `5173` and proxies `/pb`, `/import`, `/corpus` and `/api` to
 FastAPI on `8000` (see `vite.config.ts`; both ports honour `UI_PORT` and
 `API_PORT`). In production `npm run build` emits `dist/`, which FastAPI serves
 itself — so those paths are same-origin and no proxy is involved. Fetches use

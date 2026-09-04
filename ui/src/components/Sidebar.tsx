@@ -9,6 +9,7 @@ import {
   type SearchResult,
 } from '../api'
 import ImportStatus from './ImportStatus'
+import PaperCard from './PaperCard'
 
 /** Pixels from the bottom at which the next page starts loading. */
 const SCROLL_MARGIN = '240px'
@@ -233,19 +234,14 @@ export default function Sidebar() {
                   disabled={disabled}
                   onClick={() => toggle(key, result)}
                 >
-                  <span className="chip-title">{result.title ?? 'Untitled'}</span>
-                  <span className="chip-meta">
-                    {[result.journal, result.date?.slice(0, 4)].filter(Boolean).join(' · ')}
-                  </span>
-                  {result.snippet && <span className="chip-snippet">{result.snippet}</span>}
-                  <span className="chip-ids">
-                    {[
-                      result.pmid != null ? `PMID ${result.pmid}` : null,
-                      result.pmcid,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
+                  <PaperCard
+                    title={result.title}
+                    journal={result.journal}
+                    year={result.date?.slice(0, 4)}
+                    snippet={result.snippet}
+                    pmid={result.pmid}
+                    pmcid={result.pmcid}
+                  />
                 </button>
               </li>
             )
