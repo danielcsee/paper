@@ -16,7 +16,7 @@ server and the React dev server on the host.
 It is idempotent and safe to re-run. In order it will:
 
 1. create `.env` from `.env.example` if missing, then source it
-2. `docker compose up -d postgres neo4j` and wait on their healthchecks — the
+2. `docker compose up -d postgres neo4j redis` and wait on their healthchecks — the
    first run is slow, because Neo4j downloads the Graph Data Science plugin
 3. create `.venv` if missing and install `api/requirements.txt`
 4. apply Alembic migrations (`alembic upgrade head`)

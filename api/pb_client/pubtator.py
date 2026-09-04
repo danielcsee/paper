@@ -106,6 +106,20 @@ class PubTatorClient:
         self, pmid: int, *, full: bool = True, include_ref_passages: bool = False
     ) -> PaperResponse:
         """Fetch one paper's annotated text, structured into passages."""
+        paper, _ = await self.fetch_paper_with_raw(
+            pmid, full=full, include_ref_passages=include_ref_passages
+        )
+        return paper
+
+    async def fetch_paper_with_raw(
+        self, pmid: int, *, full: bool = True, include_ref_passages: bool = False
+    ) -> tuple[PaperResponse, dict]:
+        """Like `fetch_paper`, but also returns the verbatim upstream document.
+
+        One request, both representations. Ingestion stores the raw document so
+        later stages can re-run locally, and asking twice would double our load
+        on a service that tolerates ~3 requests/second.
+        """
         params = {"pmids": str(pmid)}
         if full:
             params["full"] = "true"
@@ -122,8 +136,8 @@ class PubTatorClient:
         documents = _parse_documents(response.text)
         if not documents:
             raise NotFoundError(f"PubTator has no record for PMID {pmid}")
-        return _to_paper(documents[0], include_ref_passages=include_ref_passages)
-
+        raw = documents[0]
+        return _to_paper(raw, include_ref_passages=include_ref_passages), raw
 
 # --------------------------------------------------------------------------
 # Full paper

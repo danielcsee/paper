@@ -41,6 +41,20 @@ services:
       retries: 30
       start_period: 60s
 
+  redis:
+    image: redis:7-alpine
+    container_name: litgraph-redis
+    # Celery's broker and result backend. Queue state is reconstructible from
+    # paper_stage_runs, so persistence is deliberately off.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   # Not started by dev.sh. Use `docker compose --profile app up --build api`
   # to run the packaged image (FastAPI serving the compiled UI bundle).
   api:
@@ -52,12 +66,16 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-litgraph}:${POSTGRES_PASSWORD:-litgraph}@postgres:5432/${POSTGRES_DB:-litgraph}
       NEO4J_URI: bolt://neo4j:7687
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       neo4j:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

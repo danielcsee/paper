@@ -62,3 +62,49 @@ export function resultWarning(result: SearchResult): string | null {
   if (result.pmid == null) return 'no pmid: download-only'
   return null
 }
+
+// --- import ---
+
+export type ImportJobStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'already_imported'
+  | 'rejected'
+
+export interface ImportJob {
+  pmid: number | null
+  status: ImportJobStatus
+  /** Set only for `queued`. */
+  task_id: string | null
+  /** Why a paper was rejected, or why it was not re-queued. */
+  reason: string | null
+}
+
+export interface ImportResponse {
+  jobs: ImportJob[]
+}
+
+/** Queue the selected papers for ingestion. */
+export async function importPapers(
+  papers: SearchResult[],
+  signal?: AbortSignal,
+): Promise<ImportResponse> {
+  const response = await fetch('/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ papers }),
+    signal,
+  })
+
+  if (!response.ok) {
+    let detail = `import failed (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail)
+  }
+  return (await response.json()) as ImportResponse
+}

@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: Object.fromEntries(
       // Everything the FastAPI app owns. In production these are same-origin,
       // because FastAPI serves the built bundle itself.
-      ['/pb', '/api'].map((prefix) => [
+      ['/pb', '/import', '/api'].map((prefix) => [
         prefix,
         {
           target: `http://127.0.0.1:${process.env.API_PORT ?? 8000}`,
