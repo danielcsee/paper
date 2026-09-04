@@ -7,11 +7,37 @@ which is what the unique constraints in `api.db.models` are there to enforce.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy.orm import Session
 
+from api.ingestion.models import PaperProgress
 from api.pb_client.models import PaperResponse
+
+#: The stage whose completion means a paper is fully imported. Kept as a named
+#: constant because /import's "already_imported" check depends on it, and the
+#: chain's last stage is the only honest answer to "is this done?".
+FINAL_STAGE = "embed"
+
+
+def completed_pmids(session: Session, pmids: Sequence[int]) -> set[int]:
+    """Of these PMIDs, which are fully imported.
+
+    A paper counts as complete when its `FINAL_STAGE` row is 'done'. A paper
+    that is half-imported or failed is deliberately NOT complete: re-queueing
+    it is correct, and each task self-skips the stages already current.
+    """
+    raise NotImplementedError
+
+
+def paper_progress(session: Session, pmids: Sequence[int]) -> list[PaperProgress]:
+    """Per-stage state for each PMID, in the order given.
+
+    A PMID with no `papers` row yet still yields an entry, with `paper_id` None
+    and an empty `stages` map, so callers can distinguish "not started" from
+    "not asked about". `error` carries the message from the first failed stage.
+    """
+    raise NotImplementedError
 
 
 def upsert_paper(session: Session, paper: PaperResponse) -> int:

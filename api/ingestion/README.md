@@ -1,16 +1,17 @@
 # api/ingestion
 
-The paper import pipeline. The sidebar's selected results go to
-`POST /import`, which queues one Celery chain per paper, and the chain ends with that
-paper stored in Postgres, chunked and embedded.
+The paper import pipeline. Selected search results go to `POST /import`, which
+queues one Celery chain per paper, ending with that paper stored in Postgres,
+chunked and embedded.
 
 ```
 POST /import  ->  chain(fetch_paper | persist_paper | embed_chunks)
 ```
 
-**Status: stubbed.** Every module has its real signatures, types and
-docstrings; the bodies raise `NotImplementedError`. The Celery app, settings,
-Redis service and embedding model are real and working.
+**Status: partly built.** `routes.py`, `models.py` and `celery_app.py` are
+implemented, as are Redis, the settings and the embedding model. `tasks.py`,
+`persist.py`, `chunking.py` and `embedding.py` keep real signatures and
+docstrings with `NotImplementedError` bodies.
 
 ## Files
 
@@ -18,28 +19,28 @@ Redis service and embedding model are real and working.
 |---|---|
 | `celery_app.py` | Celery instance, serialization, rate limits |
 | `tasks.py` | The three chain tasks |
-| `persist.py` | `PaperResponse` → rows; testable without a broker |
+| `persist.py` | `PaperResponse` → rows, plus the ledger reads `/import` needs |
 | `chunking.py` | Passages → chunks. Pure functions, no network or DB |
 | `embedding.py` | Lazily-loaded sentence-transformers model |
 | `routes.py` | `POST /import`, `GET /import/status` |
 | `models.py` | Request/response models for those routes |
 
-## Three decisions worth knowing
+## Decisions worth knowing
 
 **Tasks pass a `paper_id`, never a payload.** A PubTator document is ~130KB;
 moving it through the broker would make every message huge. Stage one writes it
 to `paper_pubtator_docs`, so later stages re-run from stored state.
 
-**Embedding is its own stage** — the slow, failure-prone part, retryable
-without re-fetching from a rate-limited API.
+**Embedding is its own stage** — the slow part, retryable without re-fetching.
 
-**`fetch_paper` calls `PubTatorClient` directly**, not our own `/pb/paper`
-route: same code path, no extra hop, no dependency on the web process.
+**`fetch_paper` calls `PubTatorClient` directly**, not our `/pb/paper` route.
+
+**Both routes are sync `def`**, so blocking SQLAlchemy runs in FastAPI's
+threadpool. `/import` returns one job per paper: `rejected` (no PMID),
+`already_imported` (`force` overrides), or `queued`. Capped at `MAX_BATCH`.
 
 ## Dependencies
 
-`celery` + Redis (broker and result backend), `sentence-transformers` with
-**BAAI/bge-base-en-v1.5** (768-d, matching `api.db.models.EMBEDDING_DIM`),
-`api.pb_client` to fetch and `api.db` to store.
-
-Run the worker via [`scripts/dev.sh`](../../scripts).
+`celery` + Redis, `sentence-transformers` with **BAAI/bge-base-en-v1.5**
+(768-d, matching `api.db.models.EMBEDDING_DIM`), `api.pb_client`, `api.db`.
+Worker: [`scripts/dev.sh`](../../scripts).
