@@ -5,9 +5,9 @@ import {
   resultKey,
   resultWarning,
   searchPapers,
-  type ImportResponse,
   type SearchResult,
 } from '../api'
+import { useImportStatus } from '../useImportStatus'
 import ImportStatus from './ImportStatus'
 import PaperCard from './PaperCard'
 
@@ -28,8 +28,9 @@ export default function Sidebar() {
   const [selected, setSelected] = useState<ReadonlyMap<string, SearchResult>>(new Map())
   const [importing, setImporting] = useState(false)
   const [importCount, setImportCount] = useState(0)
-  const [importResult, setImportResult] = useState<ImportResponse | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  // Owns the tracked rows and the polling loop that keeps them current.
+  const importStatus = useImportStatus()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const importAbortRef = useRef<AbortController | null>(null)
@@ -79,7 +80,6 @@ export default function Sidebar() {
     // Selection refers to the results on screen; carrying it across a new
     // search would queue papers the user can no longer see.
     setSelected(new Map())
-    setImportResult(null)
     setImportError(null)
     scrollRef.current?.scrollTo({ top: 0 })
     void runSearch(text, 1)
@@ -130,11 +130,11 @@ export default function Sidebar() {
 
     setImporting(true)
     setImportCount(papers.length)
-    setImportResult(null)
     setImportError(null)
     try {
       const response = await importPapers(papers, controller.signal)
-      setImportResult(response)
+      // Titles come from the selection: a queued paper has none stored yet.
+      importStatus.track(response, papers)
       setSelected(new Map())
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return
@@ -198,10 +198,12 @@ export default function Sidebar() {
       <ImportStatus
         pending={importing}
         pendingCount={importCount}
-        result={importResult}
+        papers={importStatus.papers}
+        polling={importStatus.polling}
+        gaveUp={importStatus.gaveUp}
         error={importError}
         onDismiss={() => {
-          setImportResult(null)
+          importStatus.clear()
           setImportError(null)
         }}
       />
