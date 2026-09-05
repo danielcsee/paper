@@ -16,6 +16,15 @@ mapfile -t branches < <(
   git branch --merged "$BASE_BRANCH" --format='%(refname:short)' \
     | grep -vFx -e "$BASE_BRANCH" -e "$current"
 )
+mapfile -t unmerged < <(
+  git branch --no-merged "$BASE_BRANCH" --format='%(refname:short)' \
+    | grep -vFx -e "$BASE_BRANCH" -e "$current"
+)
+
+if [ "${#unmerged[@]}" -gt 0 ]; then
+  echo "Branches NOT merged into '$BASE_BRANCH' (left alone):"
+  printf '  %s\n' "${unmerged[@]}"
+fi
 
 if [ "${#branches[@]}" -eq 0 ]; then
   echo "No merged branches to delete."
