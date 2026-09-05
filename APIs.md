@@ -8,6 +8,10 @@ Nothing else is called. There are no API keys: both services are open, and
 `NCBI_CONTACT_EMAIL` — if set — is appended to the `User-Agent` and is the only
 thing we volunteer about ourselves.
 
+Export responses are cached for 24h by PMID (see [`api/cache`](api/cache)), so a
+request listed below may not reach NCBI at all. Full-text documents only, and
+only when `full=true`.
+
 ---
 
 ## PubTator3

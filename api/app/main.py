@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.app.config import get_settings
+from api.cache import DocumentCache
 from api.corpus import router as corpus_router
 from api.ingestion import router as ingestion_router
 from api.ncbi import http as ncbi_http
@@ -30,12 +31,21 @@ async def lifespan(app: FastAPI):
         contact_email=settings.ncbi_contact_email,
     )
     app.state.http = client
-    app.state.pubtator = PubTatorClient(client, settings.pubtator_base_url)
+    app.state.cache = DocumentCache(
+        settings.redis_cache_url,
+        ttl_seconds=settings.document_cache_ttl_seconds,
+        timeout=settings.document_cache_timeout_seconds,
+        enabled=settings.document_cache_enabled,
+    )
+    app.state.pubtator = PubTatorClient(
+        client, settings.pubtator_base_url, cache=app.state.cache
+    )
     app.state.pmc = PmcClient(client, settings.pmc_s3_base_url, settings.papers_dir)
     try:
         yield
     finally:
         await client.aclose()
+        await app.state.cache.aclose()
 
 
 app = FastAPI(title="litgraph", lifespan=lifespan)

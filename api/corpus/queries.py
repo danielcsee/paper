@@ -245,17 +245,6 @@ def reference_pmids(session: Session, paper_id: int) -> tuple[list[int], int, in
     return pmids, total, len(pmids)
 
 
-def is_importable(paper: PaperResponse) -> bool:
-    """True when PubTator holds a full Paper for this reference.
-
-    Both halves are checked deliberately. `pmcid` alone is not enough: it is
-    only ever populated when full text is actually returned, so it says nothing
-    on its own about a light response. `has_full_text` alone would admit a
-    document with body text but no PMC identity to import against.
-    """
-    return bool(paper.pmcid) and paper.has_full_text
-
-
 def to_search_result(paper: PaperResponse) -> SearchResult:
     """Shape a fetched paper like a search hit, so the UI reuses one card.
 

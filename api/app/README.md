@@ -28,8 +28,9 @@ than a bare 404.
 ## Dependencies
 
 `fastapi`, `pydantic-settings`, `httpx`. Imports `api.pb_client` and
-`api.pm_client` for the clients and routers, and `api.ncbi` to build the one
-pooled, rate-limited HTTP client they share.
+`api.pm_client` for the clients and routers, `api.ncbi` to build the one
+pooled, rate-limited HTTP client they share, and `api.cache` for the document
+cache handed to the PubTator client.
 
 ## Configuration
 

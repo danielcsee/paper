@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 import httpx
 
+from api.cache import DocumentCache
 from api.ncbi import http
 from api.ncbi.errors import InvalidRequestError, NotFoundError, UpstreamError
 from api.pb_client.models import (
@@ -70,9 +71,15 @@ def _to_result(raw: dict) -> SearchResult:
 
 
 class PubTatorClient:
-    def __init__(self, client: httpx.AsyncClient, base_url: str) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        cache: Optional["DocumentCache"] = None,
+    ) -> None:
         self._client = client
         self._base_url = base_url.rstrip("/")
+        self._cache = cache
 
     async def search(self, text: str, page: int = 1) -> SearchResponse:
         query = text.strip()
@@ -117,18 +124,29 @@ class PubTatorClient:
     async def fetch_papers(
         self, pmids: Sequence[int], *, full: bool = True
     ) -> list[PaperResponse]:
-        """Fetch many papers in one request, in the order upstream returns them.
+        """Fetch many papers, in the order asked for.
 
         The export endpoint takes at most `EXPORT_BATCH_LIMIT` ids per call, so
         longer lists are chunked. `full=True` is not optional for anything that
         needs `pmcid`: measured, the light response reports `pmcid: null` even
         for papers that are in PMC, because it only appears when full text is
         actually returned.
+
+        Cached documents are served without a request, and only the misses are
+        asked for — which also shrinks the batches. Ordering follows the ids
+        given rather than the upstream response, since with a partly warm cache
+        there is no single upstream response to follow.
         """
         unique = list(dict.fromkeys(int(pmid) for pmid in pmids))
-        papers: list[PaperResponse] = []
-        for start in range(0, len(unique), EXPORT_BATCH_LIMIT):
-            batch = unique[start : start + EXPORT_BATCH_LIMIT]
+        if not unique:
+            return []
+
+        documents = await self._cached(unique, full=full)
+        missing = [pmid for pmid in unique if pmid not in documents]
+
+        fetched: list[dict] = []
+        for start in range(0, len(missing), EXPORT_BATCH_LIMIT):
+            batch = missing[start : start + EXPORT_BATCH_LIMIT]
             params = {"pmids": ",".join(str(pmid) for pmid in batch)}
             if full:
                 params["full"] = "true"
@@ -140,11 +158,17 @@ class PubTatorClient:
                     f"PubTator export returned HTTP {response.status_code}: "
                     f"{response.text[:200]}"
                 )
-            papers.extend(
-                _to_paper(doc, include_ref_passages=False)
-                for doc in _parse_documents(response.text)
-            )
-        return papers
+            fetched.extend(_parse_documents(response.text))
+
+        papers = [_to_paper(doc, include_ref_passages=False) for doc in fetched]
+        await self._remember(zip(papers, fetched), full=full)
+
+        by_pmid = {paper.pmid: paper for paper in papers if paper.pmid is not None}
+        by_pmid.update(
+            {pmid: _to_paper(doc, include_ref_passages=False) for pmid, doc in documents.items()}
+        )
+        # Upstream silently omits ids it has no record of; so does this.
+        return [by_pmid[pmid] for pmid in unique if pmid in by_pmid]
 
     async def fetch_paper_with_raw(
         self, pmid: int, *, full: bool = True, include_ref_passages: bool = False
@@ -155,6 +179,11 @@ class PubTatorClient:
         later stages can re-run locally, and asking twice would double our load
         on a service that tolerates ~3 requests/second.
         """
+        cached = await self._cached([pmid], full=full)
+        if pmid in cached:
+            raw = cached[pmid]
+            return _to_paper(raw, include_ref_passages=include_ref_passages), raw
+
         params = {"pmids": str(pmid)}
         if full:
             params["full"] = "true"
@@ -172,7 +201,32 @@ class PubTatorClient:
         if not documents:
             raise NotFoundError(f"PubTator has no record for PMID {pmid}")
         raw = documents[0]
-        return _to_paper(raw, include_ref_passages=include_ref_passages), raw
+        paper = _to_paper(raw, include_ref_passages=include_ref_passages)
+        await self._remember([(paper, raw)], full=full)
+        return paper, raw
+
+    # -- cache -----------------------------------------------------------------
+    # Only full-text documents are cached, and only `full=True` reads it. An
+    # abstract-only record cannot be ingested, so caching one would spend the
+    # budget on the majority case that never pays it back; and serving a full
+    # document to a `full=False` caller would quietly return more than asked.
+
+    async def _cached(self, pmids: Sequence[int], *, full: bool) -> dict[int, dict]:
+        if self._cache is None or not full:
+            return {}
+        return await self._cache.get_many(pmids)
+
+    async def _remember(
+        self, pairs: Iterable[tuple[PaperResponse, dict]], *, full: bool
+    ) -> None:
+        if self._cache is None or not full:
+            return
+        keep = {
+            paper.pmid: raw
+            for paper, raw in pairs
+            if paper.pmid is not None and paper.importable
+        }
+        await self._cache.set_many(keep)
 
 # --------------------------------------------------------------------------
 # Full paper

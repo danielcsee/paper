@@ -41,5 +41,6 @@ checked first, so a late failure is an error, not a success.
 
 ## Dependencies
 
-`celery` + Redis, `sentence-transformers`, `api.pb_client`, `api.ncbi`, `api.db`.
+`celery` + Redis, `sentence-transformers`, `api.pb_client`, `api.ncbi`,
+`api.cache`, `api.db`.
 Worker: [`scripts/dev.sh`](../../scripts).
