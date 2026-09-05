@@ -33,7 +33,7 @@ UI_PORT="${UI_PORT:-5173}"
 if [ "$START_DB" = 1 ]; then
   command -v docker >/dev/null || die "docker not found (or run with --no-db)"
   log "starting postgres + neo4j + redis"
-  docker compose up -d postgres neo4j redis
+  docker compose up -d postgres neo4j redis redis-cache
   log "waiting for healthchecks (neo4j downloads the GDS plugin on first run)"
   for _ in $(seq 1 90); do
     unhealthy=$(docker compose ps --format '{{.Service}} {{.Health}}' \

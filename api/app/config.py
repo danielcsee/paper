@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
 
+    # --- Document cache ---
+    #: A SEPARATE Redis from the broker. Eviction is per-instance, so a cache
+    #: sharing the broker's instance could discard queued tasks.
+    redis_cache_url: str = "redis://localhost:6380/0"
+    document_cache_enabled: bool = True
+    #: 24h. Every entry is re-fetchable, so this trades memory for politeness.
+    document_cache_ttl_seconds: int = 86400
+    #: Give up on Redis quickly. A slow cache must never be slower than the
+    #: PubTator call it exists to avoid.
+    document_cache_timeout_seconds: float = 0.5
+
     # --- Embeddings ---
     #: Must produce vectors of api.db.models.EMBEDDING_DIM (768). Changing this
     #: invalidates every stored embedding via the stage fingerprint.

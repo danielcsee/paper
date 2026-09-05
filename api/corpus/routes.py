@@ -147,7 +147,7 @@ async def paper_references(
             log.warning("references for paper %s failed: %s", paper_id, exc.message)
             raise HTTPException(status_code=exc.status, detail=exc.message) from exc
         references = [
-            queries.to_search_result(item) for item in fetched if queries.is_importable(item)
+            queries.to_search_result(item) for item in fetched if item.importable
         ]
 
     log.info(

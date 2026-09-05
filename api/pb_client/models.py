@@ -140,3 +140,18 @@ class PaperResponse(BaseModel):
     references: list[Reference] = Field(default_factory=list)
     #: Counts by section_type across the returned passages.
     section_counts: dict[str, int] = Field(default_factory=dict)
+
+    @property
+    def importable(self) -> bool:
+        """True when PubTator holds a full Paper for this PMID.
+
+        Both halves are checked deliberately. `pmcid` alone is not enough: it is
+        only ever populated when full text is actually returned, so it says
+        nothing on its own about a light response. `has_full_text` alone would
+        admit a document with body text but no PMC identity to import against.
+
+        Note this is not "has passages" — every document has those. An
+        abstract-only record comes back with exactly two, title and abstract,
+        and no section_type at all.
+        """
+        return bool(self.pmcid) and self.has_full_text

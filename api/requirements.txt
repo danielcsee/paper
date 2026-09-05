@@ -10,4 +10,6 @@ psycopg[binary]>=3.1,<4
 pgvector>=0.3,<0.5
 # Ingestion pipeline: Celery over Redis, and local chunk embeddings.
 celery[redis]>=5.4,<6
+# Also used directly, for the PubTator document cache.
+redis>=5,<7
 sentence-transformers>=3.0,<6

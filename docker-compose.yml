@@ -55,6 +55,25 @@ services:
       timeout: 3s
       retries: 20
 
+  redis-cache:
+    image: redis:7-alpine
+    container_name: litgraph-redis-cache
+    # A SEPARATE instance from the broker above, on purpose. maxmemory and the
+    # eviction policy are per-instance, not per-database, so a cache sharing the
+    # broker's Redis could evict queued Celery tasks -- silently, since Celery's
+    # queue lists carry no TTL and nothing reports an eviction. Isolated here,
+    # `allkeys-lru` can only ever discard cached documents, and every miss just
+    # re-fetches from PubTator.
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_CACHE_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   # Not started by dev.sh. Use `docker compose --profile app up --build api`
   # to run the packaged image (FastAPI serving the compiled UI bundle).
   api:
@@ -68,6 +87,7 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      REDIS_CACHE_URL: redis://redis-cache:6379/0
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -76,6 +96,8 @@ services:
       neo4j:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-cache:
         condition: service_healthy
 
 volumes:

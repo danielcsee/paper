@@ -13,6 +13,7 @@ datastores and applies migrations.
 | Directory | Purpose |
 |---|---|
 | [`app/`](app) | FastAPI application object, lifespan wiring, and `Settings` |
+| [`cache/`](cache) | Redis cache of raw PubTator documents, keyed by PMID |
 | [`ncbi/`](ncbi) | Shared HTTP plumbing for the NCBI clients: pool, rate limit, errors |
 | [`pb_client/`](pb_client) | PubTator3: search and full annotated papers (`/pb`) |
 | [`pm_client/`](pm_client) | PMC Open Access: downloads article files (`/pm`) |
@@ -28,10 +29,11 @@ Declared in `requirements.txt`:
 - **pydantic-settings** — configuration from environment and `.env`
 - **httpx** — async HTTP client for the NCBI calls
 - **SQLAlchemy** 2.x / **alembic** / **psycopg** (v3) / **pgvector** — Postgres
-- **celery[redis]** — the import pipeline's task queue
+- **celery[redis]** / **redis** — task queue, and the document cache
 - **sentence-transformers** — local chunk embeddings (BAAI/bge-base-en-v1.5)
 
-Postgres, Neo4j and Redis run in Docker (`docker-compose.yml` at the root).
+Postgres, Neo4j and two Redis instances — broker and document cache — run in
+Docker (`docker-compose.yml` at the root).
 
 ## Notes
 

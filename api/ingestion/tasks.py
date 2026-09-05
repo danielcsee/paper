@@ -22,6 +22,7 @@ from typing import Optional
 from celery import chain
 
 from api.app.config import get_settings
+from api.cache import DocumentCache
 from api.ingestion.celery_app import celery_app
 from api.db import session_scope
 from api.db.models import PaperChunk
@@ -44,16 +45,47 @@ async def _fetch(pmid: int) -> tuple[PaperResponse, dict]:
     the module. That costs one TLS handshake per paper — irrelevant beside the
     3 req/s limit — and avoids holding an AsyncClient bound to an event loop
     that `asyncio.run` has already closed.
+
+    The document cache is consulted first. `/corpus/{id}/references` fetches
+    exactly these documents to decide what is importable, so an import started
+    from the reader usually costs no PubTator request at all. A miss, or a
+    cache that is down, simply fetches — which is what keeps ingest working
+    when Redis does not.
     """
     settings = get_settings()
-    async with ncbi_http.build_client(
-        timeout=settings.http_timeout_seconds, contact_email=settings.ncbi_contact_email
-    ) as client:
-        pubtator = PubTatorClient(client, settings.pubtator_base_url)
-        # One request, both representations — asking twice would double our
-        # load on a service that tolerates ~3 requests/second.
-        paper, raw = await pubtator.fetch_paper_with_raw(pmid, full=True)
+    cache = DocumentCache(
+        settings.redis_cache_url,
+        ttl_seconds=settings.document_cache_ttl_seconds,
+        timeout=settings.document_cache_timeout_seconds,
+        enabled=settings.document_cache_enabled,
+    )
+    try:
+        async with ncbi_http.build_client(
+            timeout=settings.http_timeout_seconds, contact_email=settings.ncbi_contact_email
+        ) as client:
+            pubtator = PubTatorClient(client, settings.pubtator_base_url, cache=cache)
+            # One request, both representations — asking twice would double our
+            # load on a service that tolerates ~3 requests/second.
+            paper, raw = await pubtator.fetch_paper_with_raw(pmid, full=True)
+    finally:
+        # This loop dies with the task; its connection pool should not outlive it.
+        await cache.aclose()
     return paper, raw
+
+
+async def _forget(pmid: int) -> None:
+    """Drop a cached document. Best effort: it expires on its own regardless."""
+    settings = get_settings()
+    cache = DocumentCache(
+        settings.redis_cache_url,
+        ttl_seconds=settings.document_cache_ttl_seconds,
+        timeout=settings.document_cache_timeout_seconds,
+        enabled=settings.document_cache_enabled,
+    )
+    try:
+        await cache.delete(pmid)
+    finally:
+        await cache.aclose()
 
 
 @celery_app.task(bind=True, name="api.ingestion.tasks.ingest_paper", max_retries=3)
@@ -87,6 +119,9 @@ def ingest_paper(self, pmid: int, force: bool = False) -> int:
             persist.mark_stage(
                 session, paper_id, "ingest", "done", fingerprint=INGEST_VERSION
             )
+        # Postgres owns the document now, so holding a 24h copy in a capped
+        # cache would spend the budget on the one paper that no longer needs it.
+        asyncio.run(_forget(pmid))
     except Exception as exc:
         with session_scope() as session:
             persist.mark_stage(session, paper_id, "ingest", "failed", error=str(exc)[:500])

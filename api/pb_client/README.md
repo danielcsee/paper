@@ -31,9 +31,15 @@ field only appears when full text is actually returned.
 
 `fetch_papers` chunks at 100 ids per request, the export endpoint's cap.
 
+Both export calls take an optional [`DocumentCache`](../cache): cached documents
+are served without a request and only the misses are asked for, which shrinks
+the batches too. Only full-text documents are written, and only `full=True`
+reads — serving a cached full document to a `full=False` caller would quietly
+return more than was asked for.
+
 ## Dependencies
 
-`httpx`, `pydantic`, `fastapi`, `api.ncbi`. Configured from
+`httpx`, `pydantic`, `fastapi`, `api.ncbi`, `api.cache`. Configured from
 `api.app.config.Settings`.
 
 ## Notes
