@@ -44,6 +44,7 @@ return more than was asked for.
 
 ## Notes
 
-`Annotation.grounded` is `False` when upstream returned identifier `"-"`. Kept,
-not dropped, so callers decide: ingestion drops them, since ungrounded mentions
-fragment the graph.
+`Annotation.grounded` is `False` whenever `normalise_identifier` cannot make a
+usable concept id of what upstream sent — `"-"`, absent, blank, or an
+unrecognised shape. Kept, not dropped, so callers decide: ingestion drops them,
+since ungrounded mentions fragment the graph.

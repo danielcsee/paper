@@ -21,21 +21,26 @@ psycopg2, which is not installed.
 `paper_chunks`, `entities`, `paper_entity_mentions`, `paper_relations`,
 `paper_references`, `paper_stage_runs`.
 
-## Two design rules encoded here
+## Three design rules encoded here
 
 **Store what cannot be recomputed locally.** Authors, references, annotations
-and relations all come from a rate-limited external API, so re-deriving them
-means re-fetching. A paper-level embedding is deliberately absent — it is
-rebuildable from text we already hold, so a migration can add it later for free.
+and relations come from a rate-limited API, so re-deriving means re-fetching. A
+paper-level embedding is deliberately absent — rebuildable from text we hold,
+so a migration can add it later for free.
 
-**`pmid` is the natural key, not `pmcid`.** PubTator is keyed on PMID and
-search always returns one; `pmcid` is null for roughly a quarter of results,
-which are abstract-only. Those papers still get a row, with
-`has_full_text = false`.
+**`pmid` is the natural key, not `pmcid`.** PubTator is keyed on PMID and search
+always returns one; `pmcid` is null for roughly a quarter of results, which are
+abstract-only. Those still get a row, with `has_full_text = false`.
 
-Vocabularies NCBI controls (`section_type`, `entity_type`, `relation_type`) are
-plain text with no CHECK constraint, so an added upstream value cannot turn
-into an ingest failure. Vocabularies we own (`stage`, `status`) are constrained.
+**Constrain identity, not vocabulary.** Vocabularies NCBI controls
+(`section_type`, `entity_type`, `relation_type`) are unconstrained text, so a
+new upstream value cannot become an ingest failure. `entities.identifier` is
+different — it *is* the row's identity, and a blank one means nothing. Two
+shapes pass: a bare number (`672`) or a prefixed id (`MESH:D065627`). The
+suffix is alphanumeric, not numeric — MeSH ids are a letter and digits, and are
+most of the corpus. `pb_client.models.normalise_identifier` applies the same
+rule at ingest, dropping a bad id with a warning rather than failing the
+import. Vocabularies we own (`stage`, `status`) are constrained too.
 
 ## Subdirectories
 
