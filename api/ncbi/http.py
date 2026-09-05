@@ -1,8 +1,8 @@
 """Shared HTTP plumbing: one connection pool, NCBI-polite headers, light retries.
 
 The rate limit lives in a transport rather than in `get()` below, because `get`
-is not the only way out of the client: `pmc.py` streams file downloads straight
-off the AsyncClient, and `follow_redirects=True` means one call can become
+is not the only way out of the client: `pm_client` streams file downloads
+straight off the AsyncClient, and `follow_redirects=True` means one call can become
 several requests. A transport sees all of them.
 """
 
@@ -16,7 +16,7 @@ from typing import Optional
 
 import httpx
 
-from api.pb_client.errors import UpstreamError
+from api.ncbi.errors import UpstreamError
 
 log = logging.getLogger(__name__)
 

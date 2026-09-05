@@ -27,7 +27,7 @@ from api.db import session_scope
 from api.db.models import PaperChunk
 from api.ingestion import persist
 from api.ingestion.embedding import embed_texts, embedding_fingerprint
-from api.pb_client import http as pb_http
+from api.ncbi import http as ncbi_http
 from api.pb_client.models import PaperResponse
 from api.pb_client.pubtator import PubTatorClient
 
@@ -46,7 +46,7 @@ async def _fetch(pmid: int) -> tuple[PaperResponse, dict]:
     that `asyncio.run` has already closed.
     """
     settings = get_settings()
-    async with pb_http.build_client(
+    async with ncbi_http.build_client(
         timeout=settings.http_timeout_seconds, contact_email=settings.ncbi_contact_email
     ) as client:
         pubtator = PubTatorClient(client, settings.pubtator_base_url)

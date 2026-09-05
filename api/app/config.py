@@ -36,9 +36,6 @@ class Settings(BaseSettings):
     # --- Celery ---
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
-    #: NCBI tolerates roughly 3 requests/second. Enforced on the fetch task so
-    #: the limit lives at the queue rather than in application code.
-    pubtator_rate_limit: str = "3/s"
 
     # --- Embeddings ---
     #: Must produce vectors of api.db.models.EMBEDDING_DIM (768). Changing this

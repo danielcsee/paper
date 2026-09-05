@@ -40,8 +40,7 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_track_started=True,
     result_expires=3600,
-    # Enforce NCBI politeness at the queue. Only the fetch task talks to them.
-    task_annotations={
-        "api.ingestion.tasks.fetch_paper": {"rate_limit": settings.pubtator_rate_limit}
-    },
+    # No rate limit here. NCBI politeness is enforced in the HTTP transport
+    # (api/ncbi/http.py), which covers the web process too — a queue-level limit
+    # would only have covered the worker, and only for tasks that name it.
 )

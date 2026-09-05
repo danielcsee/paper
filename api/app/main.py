@@ -9,17 +9,23 @@ from fastapi.staticfiles import StaticFiles
 from api.app.config import get_settings
 from api.corpus import router as corpus_router
 from api.ingestion import router as ingestion_router
-from api.pb_client import PmcClient, PubTatorClient
-from api.pb_client import http as pb_http
+from api.ncbi import http as ncbi_http
+from api.pb_client import PubTatorClient
 from api.pb_client import router as pb_router
+from api.pm_client import PmcClient
+from api.pm_client import router as pm_router
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """One pooled HTTP client for the process lifetime, shared by both clients."""
-    client = pb_http.build_client(
+    """One pooled HTTP client for the process lifetime, shared by both clients.
+
+    Shared deliberately: the rate limiter it carries is per-client-object, so
+    two clients would mean two budgets against one organisation.
+    """
+    client = ncbi_http.build_client(
         timeout=settings.http_timeout_seconds,
         contact_email=settings.ncbi_contact_email,
     )
@@ -37,6 +43,7 @@ app = FastAPI(title="litgraph", lifespan=lifespan)
 # Routers first: StaticFiles below is mounted at "/" and would otherwise
 # swallow every path, /pb included.
 app.include_router(pb_router)
+app.include_router(pm_router)
 app.include_router(ingestion_router)
 app.include_router(corpus_router)
 

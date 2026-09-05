@@ -1,43 +1,43 @@
 # api/pb_client
 
-Clients for the two NCBI services this project reads from, plus the `/pb` routes
-exposing them. Two halves of one job — find a paper, then fetch it — but
-separate services, with separate constraints.
+Client for **PubTator3**, and the `/pb` routes that expose it. Two endpoints:
+text search over the annotated literature, and the export that returns one
+paper's full annotated text structured into passages.
+
+Downloading an article's *files* is a separate service, in
+[`api/pm_client`](../pm_client). What they share — connection pool, rate limit,
+error types — is in [`api/ncbi`](../ncbi).
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `pubtator.py` | PubTator3: text search, and full annotated papers |
-| `pmc.py` | PMC Open Access S3: downloads article files by PMCID |
-| `routes.py` | `/pb/search`, `/pb/download`, `/pb/paper` |
-| `models.py` | Response models — upstream JSON normalised, not mirrored |
-| `http.py` | One connection pool, polite headers, rate limit, retry/backoff |
-| `errors.py` | Exceptions carrying the HTTP status routes return |
+| `pubtator.py` | `PubTatorClient`: search, and full annotated papers |
+| `routes.py` | `/pb/search`, `/pb/paper` |
+| `models.py` | Our response models — upstream JSON normalised, not mirrored |
 
 ## Constraints
 
-**NCBI tolerates ~3 requests/second.** `build_client` enforces it with a custom
-`transport=` — httpx has no rate parameter, and `limits=` caps connections, not
-rate. The transport catches what `get()` cannot: `pmc.py`'s streamed downloads,
-and redirect hops. Its limiter is module-level: the worker builds a client
-per paper, so a per-client one would reset each task.
+**Everything is keyed on PMID.** `pmcids=` alone is rejected with HTTP 400. A
+paper has full text exactly when it is also in PMC, and search returns both ids,
+so there is never anything to resolve.
 
-**PubTator is keyed on PMID.** `pmcids=` alone is rejected with HTTP 400. A
-paper has full text exactly when it is also in PMC, and search returns both ids.
+**`full=true` is not optional when you need `pmcid`.** Measured: the light
+export reports `pmcid: null` even for papers that *are* in PMC, because the
+field only appears when full text is actually returned.
 
 **Search ignores `page_size`** — upstream always returns 10 per page — so
 `search()` exposes `page` only, reporting the size that came back.
 
-Downloads use the S3 bucket that replaced NCBI's FTP service (August 2026).
+`fetch_papers` chunks at 100 ids per request, the export endpoint's cap.
 
 ## Dependencies
 
-`httpx` for transport, `pydantic` for models, `fastapi` for the router; all
-configured from `api.app.config.Settings`.
+`httpx`, `pydantic`, `fastapi`, `api.ncbi`. Configured from
+`api.app.config.Settings`.
 
 ## Notes
 
-`Annotation.grounded` is `False` when upstream returned identifier `"-"`. Kept, not
-dropped, so callers decide: ingestion drops them, since ungrounded mentions
+`Annotation.grounded` is `False` when upstream returned identifier `"-"`. Kept,
+not dropped, so callers decide: ingestion drops them, since ungrounded mentions
 fragment the graph.

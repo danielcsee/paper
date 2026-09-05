@@ -20,9 +20,9 @@ from typing import Iterable, Optional
 
 import httpx
 
-from api.pb_client import http
-from api.pb_client.errors import InvalidRequestError, NotFoundError, UpstreamError
-from api.pb_client.models import DownloadedFile, DownloadResponse, FileKind
+from api.ncbi import http
+from api.ncbi.errors import InvalidRequestError, NotFoundError, UpstreamError
+from api.pm_client.models import DownloadedFile, DownloadResponse, FileKind
 
 PMCID_RE = re.compile(r"^PMC\d+$")
 ALL_KINDS: tuple[FileKind, ...] = ("xml", "text", "pdf", "media")
