@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+from typing import Optional, Sequence
 
 import httpx
 
@@ -34,6 +34,9 @@ from api.pb_client.models import (
     SearchResponse,
     SearchResult,
 )
+
+#: Hard server-side cap on ids per export request; 101 is rejected with a 400.
+EXPORT_BATCH_LIMIT = 100
 
 #: PubTator marks up highlights as:
 #:   "@GENE_BRCA1 @GENE_672 @@@<m>BRCA1</m>@@@ suppresses ..."
@@ -110,6 +113,38 @@ class PubTatorClient:
             pmid, full=full, include_ref_passages=include_ref_passages
         )
         return paper
+
+    async def fetch_papers(
+        self, pmids: Sequence[int], *, full: bool = True
+    ) -> list[PaperResponse]:
+        """Fetch many papers in one request, in the order upstream returns them.
+
+        The export endpoint takes at most `EXPORT_BATCH_LIMIT` ids per call, so
+        longer lists are chunked. `full=True` is not optional for anything that
+        needs `pmcid`: measured, the light response reports `pmcid: null` even
+        for papers that are in PMC, because it only appears when full text is
+        actually returned.
+        """
+        unique = list(dict.fromkeys(int(pmid) for pmid in pmids))
+        papers: list[PaperResponse] = []
+        for start in range(0, len(unique), EXPORT_BATCH_LIMIT):
+            batch = unique[start : start + EXPORT_BATCH_LIMIT]
+            params = {"pmids": ",".join(str(pmid) for pmid in batch)}
+            if full:
+                params["full"] = "true"
+            response = await http.get(
+                self._client, f"{self._base_url}/publications/export/biocjson", params=params
+            )
+            if response.status_code != 200:
+                raise UpstreamError(
+                    f"PubTator export returned HTTP {response.status_code}: "
+                    f"{response.text[:200]}"
+                )
+            papers.extend(
+                _to_paper(doc, include_ref_passages=False)
+                for doc in _parse_documents(response.text)
+            )
+        return papers
 
     async def fetch_paper_with_raw(
         self, pmid: int, *, full: bool = True, include_ref_passages: bool = False
