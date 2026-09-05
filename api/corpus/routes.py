@@ -10,18 +10,21 @@ from __future__ import annotations
 import logging
 from math import ceil
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from api.corpus import queries, rag
+from api.pb_client.errors import PbClientError
 from api.corpus.models import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     CorpusPage,
     CorpusPaperDetail,
     RagSearchResponse,
+    ReferenceList,
 )
 from api.app.config import get_settings
 from api.ingestion.embedding import embed_query
+from api.pb_client import PubTatorClient
 from api.db import session_scope
 
 log = logging.getLogger(__name__)
@@ -100,6 +103,68 @@ def rag_search(
         result.threshold,
     )
     return result
+
+
+@router.get(
+    "/corpus/{paper_id}/references",
+    response_model=ReferenceList,
+    summary="Importable references of a stored paper",
+)
+async def paper_references(
+    request: Request, paper_id: int = Path(..., ge=1)
+) -> ReferenceList:
+    """The references of a stored paper that exist as full Papers in PubTator.
+
+    Every entry returned is importable, so a count taken from the list is exact
+    rather than an optimistic upper bound.
+
+    This is the heavy call, and it has to be: the light export reports
+    `pmcid: null` even for papers that *are* in PMC, so nothing cheaper can
+    answer "does a full Paper exist". References without a PMID are skipped
+    outright — the export is PMID-keyed and cannot be asked about them.
+
+    Async, unlike its neighbours: the PubTator round-trip dominates, and
+    holding a threadpool worker for several seconds of network wait would be
+    the wrong resource to block.
+    """
+    with session_scope() as session:
+        paper = queries.get_paper(session, paper_id)
+        if paper is None:
+            raise HTTPException(
+                status_code=404, detail=f"paper {paper_id} is not in your corpus"
+            )
+        pmids, total, with_pmid = queries.reference_pmids(session, paper_id)
+
+    truncated = len(pmids) > queries.MAX_REFERENCE_LOOKUP
+    pmids = pmids[: queries.MAX_REFERENCE_LOOKUP]
+
+    references: list = []
+    if pmids:
+        pubtator: PubTatorClient = request.app.state.pubtator
+        try:
+            fetched = await pubtator.fetch_papers(pmids, full=True)
+        except PbClientError as exc:
+            log.warning("references for paper %s failed: %s", paper_id, exc.message)
+            raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+        references = [
+            queries.to_search_result(item) for item in fetched if queries.is_importable(item)
+        ]
+
+    log.info(
+        "paper %s references: %d total, %d with pmid, %d importable",
+        paper_id,
+        total,
+        with_pmid,
+        len(references),
+    )
+    return ReferenceList(
+        paper_id=paper_id,
+        pmid=paper.pmid,
+        total_references=total,
+        with_pmid=with_pmid,
+        truncated=truncated,
+        references=references,
+    )
 
 
 @router.get(

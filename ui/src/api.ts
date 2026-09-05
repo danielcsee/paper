@@ -323,3 +323,39 @@ export async function ragSearch(
   }
   return (await response.json()) as RagSearchResponse
 }
+
+// --- references ---
+
+export interface ReferenceList {
+  paper_id: number
+  pmid: number
+  total_references: number
+  with_pmid: number
+  truncated: boolean
+  /** Every entry is importable, so `references.length` is an exact count. */
+  references: SearchResult[]
+}
+
+/**
+ * The importable references of a stored paper.
+ *
+ * Deliberately slow: the backend must ask PubTator for full text, because the
+ * light response reports `pmcid: null` even for papers that are in PMC.
+ */
+export async function fetchReferences(
+  paperId: number,
+  signal?: AbortSignal,
+): Promise<ReferenceList> {
+  const response = await fetch(`/corpus/${paperId}/references`, { signal })
+  if (!response.ok) {
+    let detail = `could not load references (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, response.status)
+  }
+  return (await response.json()) as ReferenceList
+}

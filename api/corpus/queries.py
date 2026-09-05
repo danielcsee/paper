@@ -17,6 +17,7 @@ from api.corpus.models import (
     PaperParagraph,
     PaperReferenceOut,
 )
+from api.pb_client.models import PaperResponse, SearchResult
 from api.db.models import (
     Paper,
     PaperAuthor,
@@ -206,4 +207,93 @@ def get_paper(session: Session, paper_id: int) -> Optional[CorpusPaperDetail]:
             )
             for r in references
         ],
+    )
+
+
+#: Refuse to query more than this many references for one paper. The export
+#: endpoint caps a single request at 100, and chunking beyond a few calls turns
+#: one click into a long rate-limited stall.
+MAX_REFERENCE_LOOKUP = 300
+
+#: Characters of abstract kept as the card's snippet.
+REFERENCE_SNIPPET_CHARS = 260
+
+
+def reference_pmids(session: Session, paper_id: int) -> tuple[list[int], int, int]:
+    """(pmids to look up, total references, references carrying a PMID).
+
+    Only references with a PMID can be asked about at all — PubTator's export
+    is PMID-keyed. Measured on this corpus the share ranges from 0% to 93%.
+    """
+    rows = session.execute(
+        select(PaperReference.ref_pmid)
+        .where(PaperReference.paper_id == paper_id)
+        .order_by(PaperReference.ordinal)
+    ).scalars().all()
+
+    total = len(rows)
+    pmids: list[int] = []
+    seen: set[int] = set()
+    for value in rows:
+        if not value or not value.isdigit():
+            continue
+        pmid = int(value)
+        if pmid in seen:
+            continue
+        seen.add(pmid)
+        pmids.append(pmid)
+    return pmids, total, len(pmids)
+
+
+def is_importable(paper: PaperResponse) -> bool:
+    """True when PubTator holds a full Paper for this reference.
+
+    Both halves are checked deliberately. `pmcid` alone is not enough: it is
+    only ever populated when full text is actually returned, so it says nothing
+    on its own about a light response. `has_full_text` alone would admit a
+    document with body text but no PMC identity to import against.
+    """
+    return bool(paper.pmcid) and paper.has_full_text
+
+
+def to_search_result(paper: PaperResponse) -> SearchResult:
+    """Shape a fetched paper like a search hit, so the UI reuses one card.
+
+    `score` and `text_hl` stay null: they are relevance artefacts of a search,
+    and this is a reference list. The abstract stands in for the snippet.
+    """
+    # `Passage.type` is PubTator's passage kind; `chunk_type` is the database
+    # column that stores it. Abstract *headings* ("Background") are
+    # abstract_title_1 and make a poor snippet, so prefer the prose.
+    abstract = next((p.text for p in paper.passages if p.type == "abstract"), None)
+    if abstract is None:
+        abstract = next(
+            (
+                p.text
+                for p in paper.passages
+                if (p.section_type or "").upper() == "ABSTRACT"
+                and (p.type or "") != "abstract_title_1"
+            ),
+            None,
+        )
+    snippet = None
+    if abstract:
+        collapsed = " ".join(abstract.split())
+        snippet = (
+            collapsed
+            if len(collapsed) <= REFERENCE_SNIPPET_CHARS
+            else collapsed[:REFERENCE_SNIPPET_CHARS].rstrip() + "\u2026"
+        )
+
+    return SearchResult(
+        pmid=paper.pmid,
+        pmcid=paper.pmcid,
+        title=paper.title,
+        journal=paper.journal,
+        authors=[author.display for author in paper.authors],
+        date=paper.date,
+        doi=paper.doi,
+        score=None,
+        text_hl=None,
+        snippet=snippet,
     )

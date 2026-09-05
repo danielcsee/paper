@@ -3,6 +3,8 @@ import { ApiError, fetchPaper, isHeading, type PaperDetail } from '../api'
 
 interface Props {
   paperId: number
+  /** Show this paper's references in the side panel. */
+  onViewReferences?: (paperId: number, title: string) => void
   /** Lets the tab title update once the full title arrives. */
   onLoaded?: (paper: PaperDetail) => void
   /** The paper is gone (404), so its tab should not outlive this session. */
@@ -43,7 +45,12 @@ function formatReference(reference: {
 }
 
 /** One stored paper, laid out for reading. */
-export default function PaperView({ paperId, onLoaded, onMissing }: Props) {
+export default function PaperView({
+  paperId,
+  onViewReferences,
+  onLoaded,
+  onMissing,
+}: Props) {
   const [paper, setPaper] = useState<PaperDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -123,14 +130,25 @@ export default function PaperView({ paperId, onLoaded, onMissing }: Props) {
             )}
             {citation && <p className="paper-doc-citation">{citation}</p>}
             <p className="paper-doc-ids">
-              {[
-                `PMID ${paper.pmid}`,
-                paper.pmcid,
-                paper.doi ? `doi:${paper.doi}` : null,
-                paper.has_full_text ? null : 'abstract only',
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+              <span>
+                {[
+                  `PMID ${paper.pmid}`,
+                  paper.pmcid,
+                  paper.doi ? `doi:${paper.doi}` : null,
+                  paper.has_full_text ? null : 'abstract only',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+              {onViewReferences && paper.references.length > 0 && (
+                <button
+                  type="button"
+                  className="paper-doc-refs-link"
+                  onClick={() => onViewReferences(paper.paper_id, paper.title ?? 'this paper')}
+                >
+                  view references ({paper.references.length})
+                </button>
+              )}
             </p>
           </header>
 

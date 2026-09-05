@@ -4,7 +4,7 @@ import ChatWindow from './components/ChatWindow'
 import CorpusView from './components/CorpusView'
 import PaperTabs from './components/PaperTabs'
 import PaperView from './components/PaperView'
-import Sidebar from './components/Sidebar'
+import PaperExplorer, { type ReferenceTarget } from './components/PaperExplorer'
 import {
   CHAT,
   CORPUS,
@@ -43,6 +43,8 @@ export default function App() {
   // but it must not come back after a reload.
   const [missing, setMissing] = useState<ReadonlySet<number>>(new Set())
   const [view, setView] = useState<View>(() => pathToView(window.location.pathname))
+  // Which paper's references the side panel is showing, if any.
+  const [referencesFor, setReferencesFor] = useState<ReferenceTarget | null>(null)
 
   useEffect(() => {
     saveTabs(tabs.filter((tab) => !missing.has(tab.paperId)))
@@ -240,6 +242,7 @@ export default function App() {
           <PaperView
             key={view.paperId}
             paperId={view.paperId}
+            onViewReferences={(paperId, title) => setReferencesFor({ paperId, title })}
             onLoaded={handleLoaded}
             onMissing={handleMissing}
           />
@@ -258,7 +261,10 @@ export default function App() {
             onOpenPaper={(paperId, title) => openPaper(paperId, truncateTitle(title, 200))}
           />
         )}
-        <Sidebar />
+        <PaperExplorer
+          referencesFor={referencesFor}
+          onCloseReferences={() => setReferencesFor(null)}
+        />
       </main>
     </div>
   )

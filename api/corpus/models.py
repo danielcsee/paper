@@ -7,6 +7,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from api.pb_client.models import SearchResult
+
 #: Matches the frontend's infinite-scroll page size. Capped so one request
 #: cannot ask for the whole corpus.
 DEFAULT_PAGE_SIZE = 20
@@ -127,3 +129,23 @@ class RagSearchResponse(BaseModel):
     aggregator: str
     chunks_considered: int
     papers: list[RagPaper] = Field(default_factory=list)
+
+
+class ReferenceList(BaseModel):
+    """The importable references of a stored paper.
+
+    Every entry is guaranteed to exist as a full Paper in PubTator, so a count
+    taken from `references` is exact rather than optimistic.
+    """
+
+    paper_id: int
+    pmid: int
+    #: References recorded for the paper, importable or not.
+    total_references: int
+    #: Those carrying a PMID, i.e. the ones we could even ask PubTator about.
+    with_pmid: int
+    #: True when the reference list was longer than we were willing to query.
+    truncated: bool = False
+    #: Importable references, shaped as search results so the UI renders them
+    #: with the same card. `score` and `text_hl` are search-only and stay null.
+    references: list[SearchResult] = Field(default_factory=list)
