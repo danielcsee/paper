@@ -16,3 +16,7 @@ Put major features into their own directories, and export a public interface whe
 Before doing work on a file, check the directory for a README and read that first.
 
 Whenever you add a new directory, add a README to that directory summarizing what the feature does, what dependencies it relies on, and what its subdirectories are for. Keep the README under 250 words and update it whenever you make changes to its directory.
+
+## APIs
+
+Create a separate directory and separate api client for every api you integrate with. Whenever you make a change to how you call a third-party api, update APIs.md in project root.
