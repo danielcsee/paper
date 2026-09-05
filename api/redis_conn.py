@@ -1,9 +1,13 @@
-"""One async Redis connection per event loop.
+"""One async Redis connection per event loop, shared by everything that needs one.
 
 Per loop, not per process. The Celery worker runs each task inside its own
 `asyncio.run`, so a module-level client would be bound to a loop that has
 already closed by the time the next task starts. The map is keyed on the
 running loop and holds it weakly, so entries disappear with the loop itself.
+
+Two callers today, against two different instances: the document cache
+(`api.cache`) and the NCBI rate limiter (`api.ncbi.http`). Hence the URL in the
+key — a client for one instance must never be handed to the other.
 """
 
 from __future__ import annotations
@@ -48,7 +52,7 @@ def get_client(url: str, timeout: float) -> Optional[aioredis.Redis]:
                 decode_responses=False,
             )
         except Exception:  # malformed URL, unsupported scheme
-            log.warning("could not build a Redis cache client for %s", url, exc_info=True)
+            log.warning("could not build a Redis client for %s", url, exc_info=True)
             return None
         per_url[url] = client
     return client
@@ -71,4 +75,4 @@ async def close_client(url: str) -> None:
     try:
         await client.aclose()
     except Exception:  # already closed, or never connected
-        log.debug("closing the Redis cache client for %s failed", url, exc_info=True)
+        log.debug("closing the Redis client for %s failed", url, exc_info=True)

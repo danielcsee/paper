@@ -17,7 +17,7 @@ import json
 import logging
 from typing import Iterable, Optional
 
-from api.cache.client import close_client, get_client
+from api.redis_conn import close_client, get_client
 
 log = logging.getLogger(__name__)
 

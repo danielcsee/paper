@@ -17,6 +17,7 @@ from typing import Optional
 import httpx
 
 from api.ncbi.errors import UpstreamError
+from api.redis_conn import get_client
 
 log = logging.getLogger(__name__)
 
@@ -63,10 +64,98 @@ class RateLimiter:
             await asyncio.sleep(delay)
 
 
-#: Shared by every client this process builds. Module-level on purpose: the
-#: worker builds one client per paper, so a per-client limiter would reset on
-#: every task and enforce nothing across them.
+#: The in-process fallback, used when Redis cannot be reached. Module-level on
+#: purpose: the worker builds one client per paper, so a per-client limiter
+#: would reset on every task and enforce nothing across them.
 _shared_limiter = RateLimiter(NCBI_REQUESTS_PER_SECOND)
+
+
+#: Claim the next free slot, atomically, and report how long to wait for it.
+#:
+#: The same algorithm as `RateLimiter` above, moved into the server so every
+#: process draws on one budget. `TIME` is Redis's own clock, not the caller's:
+#: the worker and the web process do not share one, and in containers they
+#: drift. Times cross the Lua boundary as integer microseconds, since Redis
+#: truncates a float return.
+_CLAIM_SLOT = """
+local interval = tonumber(ARGV[1])
+local ttl_ms   = tonumber(ARGV[2])
+local t        = redis.call('TIME')
+local now      = tonumber(t[1]) * 1000000 + tonumber(t[2])
+local slot     = tonumber(redis.call('GET', KEYS[1]) or '0')
+if slot < now then slot = now end
+redis.call('SET', KEYS[1], slot + interval, 'PX', ttl_ms)
+return slot - now
+"""
+
+
+class RedisRateLimiter:
+    """One request budget shared by every process talking to NCBI.
+
+    Same contract as `RateLimiter` — `await acquire()` returns when the caller
+    may proceed — so `RateLimitedTransport` cannot tell them apart.
+
+    Unlike the local limiter this object holds no state worth preserving: the
+    slot lives in Redis, so it no longer matters that the worker builds a fresh
+    limiter for every task.
+
+    If Redis cannot be reached, it falls back to the process-wide local
+    limiter. That degrades the guarantee to 3/s *per process* rather than
+    dropping it, which is the safe direction — and in the worker's case Redis
+    being down means the broker is down too, so nothing is running anyway.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        rate: float = NCBI_REQUESTS_PER_SECOND,
+        *,
+        key: str = "ncbi:ratelimit",
+        timeout: float = 1.0,
+        fallback: Optional[RateLimiter] = None,
+    ) -> None:
+        if rate <= 0:
+            raise ValueError("rate must be positive")
+        self._url = url
+        self._key = key
+        self._timeout = timeout
+        self._interval_us = int(1_000_000 / rate)
+        # Long enough that an idle gap never expires a live claim; short enough
+        # that a forgotten key does not outlive the process. Expiry is harmless
+        # either way — it just restarts the sequence.
+        self._ttl_ms = max(10_000, self._interval_us // 1000 * 10)
+        self._fallback = fallback if fallback is not None else _shared_limiter
+        self._script = None
+
+    async def acquire(self) -> None:
+        delay = await self._claim()
+        if delay is None:
+            await self._fallback.acquire()
+            return
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    async def _claim(self) -> Optional[float]:
+        """Seconds to wait, or None if Redis could not answer."""
+        client = get_client(self._url, self._timeout)
+        if client is None:
+            return None
+        try:
+            # register_script gives EVALSHA with an EVAL fallback, so a Redis
+            # restart that flushed the script cache recovers by itself.
+            if self._script is None:
+                self._script = client.register_script(_CLAIM_SLOT)
+            micros = await self._script(
+                keys=[self._key], args=[self._interval_us, self._ttl_ms]
+            )
+        except Exception as exc:
+            log.warning(
+                "NCBI rate limiter could not reach Redis (%s); "
+                "falling back to this process's own limit",
+                exc,
+            )
+            return None
+        return max(0.0, int(micros) / 1_000_000)
 
 
 class RateLimitedTransport(httpx.AsyncBaseTransport):

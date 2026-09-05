@@ -1,8 +1,10 @@
 # Third-party APIs
 
 Every external request this project makes, and what we know about each. Both
-services are NCBI's, so both draw on **one shared budget of ~3 requests/second**
-enforced in [`api/ncbi/http.py`](api/ncbi/http.py).
+services are NCBI's, which rate-limits them as a whole, so both draw on **one
+shared budget of ~3 requests/second** enforced in
+[`api/ncbi/http.py`](api/ncbi/http.py). The budget is a single Redis key, so it
+holds across the web process and every Celery worker, not just within one.
 
 Nothing else is called. There are no API keys: both services are open, and
 `NCBI_CONTACT_EMAIL` — if set — is appended to the `User-Agent` and is the only

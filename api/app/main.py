@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.app.config import get_settings
 from api.cache import DocumentCache
+from api.redis_conn import close_client as close_redis
 from api.corpus import router as corpus_router
 from api.ingestion import router as ingestion_router
 from api.ncbi import http as ncbi_http
@@ -29,6 +30,9 @@ async def lifespan(app: FastAPI):
     client = ncbi_http.build_client(
         timeout=settings.http_timeout_seconds,
         contact_email=settings.ncbi_contact_email,
+        limiter=ncbi_http.RedisRateLimiter(
+            settings.rate_limit_redis_url, settings.ncbi_rate_limit_per_second
+        ),
     )
     app.state.http = client
     app.state.cache = DocumentCache(
@@ -46,6 +50,7 @@ async def lifespan(app: FastAPI):
     finally:
         await client.aclose()
         await app.state.cache.aclose()
+        await close_redis(settings.rate_limit_redis_url)
 
 
 app = FastAPI(title="litgraph", lifespan=lifespan)
