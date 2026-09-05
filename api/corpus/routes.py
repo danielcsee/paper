@@ -13,7 +13,7 @@ from math import ceil
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from api.corpus import queries, rag
-from api.pb_client.errors import PbClientError
+from api.ncbi.errors import NcbiError
 from api.corpus.models import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -143,7 +143,7 @@ async def paper_references(
         pubtator: PubTatorClient = request.app.state.pubtator
         try:
             fetched = await pubtator.fetch_papers(pmids, full=True)
-        except PbClientError as exc:
+        except NcbiError as exc:
             log.warning("references for paper %s failed: %s", paper_id, exc.message)
             raise HTTPException(status_code=exc.status, detail=exc.message) from exc
         references = [

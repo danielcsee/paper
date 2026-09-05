@@ -6,7 +6,13 @@ import react from '@vitejs/plugin-react'
 // '/my-corpus'. The pattern is matched against path *and* query, so '\?' must
 // be an accepted terminator or '/corpus?page=1' silently misses the proxy and
 // the browser gets index.html where it expected JSON.
-const API_PATTERNS = ['^/pb(/|\\?|$)', '^/import(/|\\?|$)', '^/corpus(/|\\?|$)', '^/api(/|\\?|$)']
+const API_PATTERNS = [
+  '^/pb(/|\\?|$)',
+  '^/pm(/|\\?|$)',
+  '^/import(/|\\?|$)',
+  '^/corpus(/|\\?|$)',
+  '^/api(/|\\?|$)',
+]
 
 const target = `http://127.0.0.1:${process.env.API_PORT ?? 8000}`
 

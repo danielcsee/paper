@@ -1,28 +1,14 @@
-"""Clients for the two NCBI services this project reads from.
+"""Client for PubTator3 — text search over the annotated literature.
 
-PubTator3  — text search over the annotated literature      (pubtator.py)
-PMC OA S3  — the article files themselves, keyed by PMCID   (pmc.py)
+Search returns paper metadata; the export endpoint returns one paper's full
+annotated text, structured into passages. Both are keyed on PMID.
 
-They live together because they are two halves of one job (find a paper, then
-fetch it), but they are separate services with separate constraints.
+Downloading the article *files* is a different service and lives in
+`api.pm_client`. What the two share — connection pool, rate limit, error
+types — lives in `api.ncbi`.
 """
 
-from api.pb_client.errors import (
-    InvalidRequestError,
-    NotFoundError,
-    PbClientError,
-    UpstreamError,
-)
-from api.pb_client.pmc import PmcClient
 from api.pb_client.pubtator import PubTatorClient
 from api.pb_client.routes import router
 
-__all__ = [
-    "InvalidRequestError",
-    "NotFoundError",
-    "PbClientError",
-    "PmcClient",
-    "PubTatorClient",
-    "UpstreamError",
-    "router",
-]
+__all__ = ["PubTatorClient", "router"]

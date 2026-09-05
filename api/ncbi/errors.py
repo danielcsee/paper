@@ -1,7 +1,7 @@
-"""Errors raised by the NCBI clients, mapped to HTTP status codes in routes.py."""
+"""Errors raised by the NCBI clients, mapped to HTTP status codes in their routes."""
 
 
-class PbClientError(Exception):
+class NcbiError(Exception):
     """Base class. `status` is what the API should return to its caller."""
 
     status = 502
@@ -11,19 +11,19 @@ class PbClientError(Exception):
         self.message = message
 
 
-class NotFoundError(PbClientError):
+class NotFoundError(NcbiError):
     """The requested article does not exist, or is not in the open-access set."""
 
     status = 404
 
 
-class UpstreamError(PbClientError):
+class UpstreamError(NcbiError):
     """NCBI returned an error, or could not be reached."""
 
     status = 502
 
 
-class InvalidRequestError(PbClientError):
+class InvalidRequestError(NcbiError):
     """The caller's arguments are malformed."""
 
     status = 400

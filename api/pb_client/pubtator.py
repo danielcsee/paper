@@ -22,8 +22,8 @@ from typing import Optional, Sequence
 
 import httpx
 
-from api.pb_client import http
-from api.pb_client.errors import InvalidRequestError, NotFoundError, UpstreamError
+from api.ncbi import http
+from api.ncbi.errors import InvalidRequestError, NotFoundError, UpstreamError
 from api.pb_client.models import (
     Annotation,
     Author,

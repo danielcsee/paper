@@ -42,4 +42,4 @@ aggregator is a named function; `AGGREGATORS` also holds `max` and `mean`.
 
 ## Dependencies
 
-`api.db`, `api.pb_client`, `api.ingestion.embedding`, `fastapi`, `pydantic`.
+`api.db`, `api.pb_client`, `api.ncbi`, `api.ingestion.embedding`, `fastapi`, `pydantic`.

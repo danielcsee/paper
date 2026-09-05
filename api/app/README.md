@@ -2,7 +2,7 @@
 
 The FastAPI application itself: configuration, startup wiring, and static
 hosting of the compiled UI. No domain logic lives here — that is in
-[`pb_client/`](../pb_client) and [`db/`](../db).
+[`pb_client/`](../pb_client), [`pm_client/`](../pm_client) and [`db/`](../db).
 
 ## Files
 
@@ -27,8 +27,9 @@ than a bare 404.
 
 ## Dependencies
 
-`fastapi`, `pydantic-settings`, `httpx`. Imports `api.pb_client` for the
-clients and router.
+`fastapi`, `pydantic-settings`, `httpx`. Imports `api.pb_client` and
+`api.pm_client` for the clients and routers, and `api.ncbi` to build the one
+pooled, rate-limited HTTP client they share.
 
 ## Configuration
 
