@@ -13,6 +13,7 @@ than rebuilt, and `entities`, which is shared across papers.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Literal, Optional, Sequence
 
 from sqlalchemy import delete, func, select
@@ -32,7 +33,9 @@ from api.db.models import (
 )
 from api.ingestion.chunking import Chunk, build_body_text, chunks_from_passages, find_chunk_ordinal
 from api.ingestion.models import PaperProgress, PaperState
-from api.pb_client.models import PaperResponse
+from api.pb_client.models import PaperResponse, normalise_identifier
+
+log = logging.getLogger(__name__)
 
 #: Re-exported for readability at the call sites in this module. The single
 #: definition lives on the model, because `api.corpus` reads it too.
@@ -337,39 +340,58 @@ def replace_references(session: Session, paper_id: int, paper: PaperResponse) ->
 def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     """Ensure an `entities` row per grounded concept; return identifier -> id.
 
-    Ungrounded annotations (upstream identifier "-") never reach this table:
-    they fragment the graph, which is the whole reason for grounding entities.
-    Relations reference concepts too, and may name one no annotation did.
+    Ungrounded concepts never reach this table: they fragment the graph, which
+    is the whole reason for grounding entities. Relations reference concepts
+    too, and may name one no annotation did.
+
+    This is the single gate in front of `entities`, so every identifier is
+    validated here rather than trusted from the parser. `normalise_identifier`
+    is the same rule as the table's CHECK constraint — application-side so a
+    malformed id is dropped with a warning, database-side so it cannot land at
+    all if this is ever bypassed.
     """
     wanted: dict[str, dict] = {}
+    skipped = 0
+
+    def remember(raw: object, name: Optional[str], kind: Optional[str], database=None) -> bool:
+        identifier = normalise_identifier(raw)
+        if identifier is None:
+            return False
+        wanted.setdefault(
+            identifier,
+            {
+                "identifier": identifier,
+                # A blank type is as useless as a blank id, and arrived the
+                # same way: entity 49 had entity_type " " alongside its " " id.
+                "entity_type": (kind or "").strip() or "Unknown",
+                "database": database,
+                "name": name,
+            },
+        )
+        return True
+
     for passage in paper.passages:
         for annotation in passage.annotations:
-            if not annotation.grounded or not annotation.identifier:
+            if not annotation.grounded:
                 continue
-            wanted.setdefault(
-                annotation.identifier,
-                {
-                    "identifier": annotation.identifier,
-                    "entity_type": annotation.type or "Unknown",
-                    "database": annotation.database,
-                    "name": annotation.name,
-                },
-            )
+            if not remember(
+                annotation.identifier, annotation.name, annotation.type, annotation.database
+            ):
+                skipped += 1
     for relation in paper.relations:
         for identifier, name, kind in (
             (relation.role1_identifier, relation.role1_name, relation.role1_type),
             (relation.role2_identifier, relation.role2_name, relation.role2_type),
         ):
-            if identifier and identifier != "-":
-                wanted.setdefault(
-                    identifier,
-                    {
-                        "identifier": identifier,
-                        "entity_type": kind or "Unknown",
-                        "database": None,
-                        "name": name,
-                    },
-                )
+            if identifier is not None and not remember(identifier, name, kind):
+                skipped += 1
+
+    if skipped:
+        log.warning(
+            "dropped %d concept(s) with an unusable identifier for PMID %s",
+            skipped,
+            paper.pmid,
+        )
 
     if not wanted:
         return {}
@@ -432,9 +454,10 @@ def replace_mentions(
     rows: dict[tuple, dict] = {}
     for passage in paper.passages:
         for annotation in passage.annotations:
-            if not annotation.grounded or not annotation.identifier:
+            identifier = normalise_identifier(annotation.identifier)
+            if not annotation.grounded or identifier is None:
                 continue
-            entity_id = entity_ids.get(annotation.identifier)
+            entity_id = entity_ids.get(identifier)
             if entity_id is None:
                 continue
             ordinal = find_chunk_ordinal(chunks, annotation.offset)
@@ -463,8 +486,8 @@ def replace_relations(
 
     rows: dict[tuple, dict] = {}
     for relation in paper.relations:
-        subject = entity_ids.get(relation.role1_identifier or "")
-        obj = entity_ids.get(relation.role2_identifier or "")
+        subject = entity_ids.get(normalise_identifier(relation.role1_identifier) or "")
+        obj = entity_ids.get(normalise_identifier(relation.role2_identifier) or "")
         if subject is None or obj is None or not relation.type:
             continue
         rows.setdefault(

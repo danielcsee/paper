@@ -197,7 +197,20 @@ class Entity(Base):
     database: Mapped[Optional[str]] = mapped_column(String(64))
     name: Mapped[Optional[str]] = mapped_column(Text)
 
+    #: The two shapes NCBI actually produces. Kept in sync with
+    #: `api.pb_client.models.IDENTIFIER_RE`, which drops a bad id at ingest;
+    #: this is the backstop for anything that bypasses that path.
+    #:
+    #: The suffix is alphanumeric, not numeric — MeSH ids are a letter and
+    #: digits ("MESH:D065627") and are the bulk of the corpus, while Gene and
+    #: Species carry no prefix at all ("672", "9606").
+    IDENTIFIER_SQL_RE = r"^([0-9]+|[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9._\-]+)$"
+
     __table_args__ = (
+        CheckConstraint(
+            f"identifier ~ '{IDENTIFIER_SQL_RE}'",
+            name="ck_entities_identifier_format",
+        ),
         Index("ix_entities_entity_type", "entity_type"),
         Index("ix_entities_name", "name"),
     )

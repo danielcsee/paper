@@ -1,9 +1,36 @@
 """Response models. These are ours, not NCBI's — upstream fields are normalised
 here so callers don't depend on the shape of either service's JSON."""
 
+import re
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+#: A usable NCBI concept id, in the only two shapes upstream produces.
+#:
+#:   672, 9606                bare number -- NCBI Gene and NCBI Taxonomy
+#:   MESH:D065627, CVCL:M023  prefixed -- MeSH, Cellosaurus, OMIM, ...
+#:
+#: Note the suffix is alphanumeric, not numeric: MeSH ids are a letter and
+#: digits, and they are 83% of this corpus. A `PREFIX:number` rule would reject
+#: almost every real identifier.
+IDENTIFIER_RE = re.compile(r"^(?:[0-9]+|[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9._-]+)$")
+
+
+def normalise_identifier(value: object) -> Optional[str]:
+    """The identifier, trimmed — or None when it is not one.
+
+    None covers every way upstream declines to ground a mention: absent, the
+    literal "-", empty, whitespace-only, or a shape we do not recognise.
+    Callers treat None as ungrounded and drop the concept, which is what keeps
+    `entities.identifier` matching its CHECK constraint.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text == "-":
+        return None
+    return text if IDENTIFIER_RE.match(text) else None
 
 class SearchResult(BaseModel):
     pmid: Optional[int] = None

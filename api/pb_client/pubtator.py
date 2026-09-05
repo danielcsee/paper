@@ -34,6 +34,7 @@ from api.pb_client.models import (
     Relation,
     SearchResponse,
     SearchResult,
+    normalise_identifier,
 )
 
 #: Hard server-side cap on ids per export request; 101 is rejected with a 400.
@@ -266,6 +267,9 @@ def _to_annotation(raw: dict) -> Optional[Annotation]:
         return None
     infons = raw.get("infons") or {}
     identifier = infons.get("identifier")
+    # `bool(" ")` is True, so the old `identifier != "-"` test let a
+    # whitespace-only id through as grounded and into the entities table.
+    grounded_id = normalise_identifier(identifier)
     normalized = infons.get("normalized_id")
     return Annotation(
         id=raw.get("id"),
@@ -273,13 +277,17 @@ def _to_annotation(raw: dict) -> Optional[Annotation]:
         text=raw.get("text"),
         offset=locations[0].get("offset", 0),
         length=locations[0].get("length", 0),
-        identifier=identifier,
+        # Normalised when usable; otherwise the raw value is kept, because
+        # ungrounded annotations are surfaced rather than dropped here.
+        identifier=grounded_id
+        if grounded_id is not None
+        else (None if identifier is None else str(identifier)),
         # Upstream returns str for MeSH, int for NCBI taxonomy.
         normalized_id=None if normalized is None else str(normalized),
         database=infons.get("database"),
         name=infons.get("name"),
         biotype=infons.get("biotype"),
-        grounded=bool(identifier) and identifier != "-",
+        grounded=grounded_id is not None,
     )
 
 
