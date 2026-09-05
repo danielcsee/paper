@@ -11,7 +11,6 @@ cache, and ingest reads it.
 
 | File | Purpose |
 |---|---|
-| `client.py` | One async Redis connection per event loop, keyed by URL |
 | `documents.py` | `DocumentCache`: get/get_many/set_many/delete, all fail-open |
 
 ## Four decisions
@@ -37,4 +36,5 @@ too — a cache write must never fail the request that produced the data.
 
 ## Dependencies
 
-`redis` (asyncio client). Configured from `api.app.config.Settings`.
+`redis` (asyncio client), and `api.redis_conn` for the connection itself.
+Configured from `api.app.config.Settings`.

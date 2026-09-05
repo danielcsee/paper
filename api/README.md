@@ -13,6 +13,7 @@ datastores and applies migrations.
 | Directory | Purpose |
 |---|---|
 | [`app/`](app) | FastAPI application object, lifespan wiring, and `Settings` |
+| `redis_conn.py` | One async Redis connection per event loop, shared by both users |
 | [`cache/`](cache) | Redis cache of raw PubTator documents, keyed by PMID |
 | [`ncbi/`](ncbi) | Shared HTTP plumbing for the NCBI clients: pool, rate limit, errors |
 | [`pb_client/`](pb_client) | PubTator3: search and full annotated papers (`/pb`) |

@@ -1,7 +1,7 @@
 # api/ncbi
 
-Shared plumbing for the NCBI service clients. Not a client itself: it owns no
-endpoint and knows nothing about papers.
+Shared plumbing for the NCBI clients — not a client itself, and it knows
+nothing about papers.
 
 `pb_client` (PubTator3) and `pm_client` (PMC Open Access) are separate
 integrations, but one organisation with one request budget. This holds what
@@ -11,28 +11,30 @@ neither should own alone, so neither imports the other.
 
 | File | Purpose |
 |---|---|
-| `http.py` | `build_client` (pooled, polite, rate limited) and `get` (retry/backoff) |
-| `errors.py` | `NcbiError` and friends, carrying the HTTP status routes return |
+| `http.py` | `build_client` (pooled, polite, rate limited), `get` (retry/backoff) |
+| `errors.py` | `NcbiError` and friends, carrying the status routes return |
 
 ## The rate limit
 
-NCBI tolerates ~3 requests/second. `build_client` enforces it with a custom
-`transport=`; httpx has no rate parameter, and `limits=` caps connections, not
-rate. It belongs in the transport because `get()` is not the only way out of a
-client — `pm_client` streams downloads directly off the `AsyncClient`, and
+NCBI rate-limits its services as a whole — ~3 requests/second — so PubTator and
+PMC share one budget: one client within a process, one Redis key across them.
+
+`build_client` installs it as a custom `transport=` — httpx has no rate
+parameter, and `limits=` caps connections, not rate. The transport, not `get()`,
+because `pm_client` streams downloads straight off the `AsyncClient` and
 redirects turn one call into several.
 
-The limiter is a **module-level singleton**, so every client this process builds
-draws on one budget. Two things depend on that: `main.py` hands one
-`AsyncClient` to both service clients, and the Celery worker builds a fresh
-client inside a fresh `asyncio.run` for every paper — a per-client limiter would
-reset each task and enforce nothing across them.
+**`RedisRateLimiter`** is the real one. A Lua script claims the next free slot
+atomically and returns the wait; the caller sleeps outside any lock. Time comes
+from Redis's `TIME`, not the caller's — the worker and web process share no
+clock. The key sits on the **broker's** Redis: ~50 bytes on an instance running
+`noeviction`, so it cannot be evicted and needs no container of its own.
 
-Slots are spaced 1/rate apart rather than bucketed, so no two requests leave
-together. The lock is a `threading.Lock`, not an `asyncio.Lock`: on Python 3.9
-asyncio primitives bind to the creating loop, which a limiter shared across
-per-task loops cannot do. It is never held across an `await`.
+**`RateLimiter`** is the fallback when Redis is unreachable, degrading to 3/s
+*per process* rather than dropping the limit. It must stay a module-level
+singleton: the worker builds a client per task, so a per-client fallback would
+enforce nothing across them.
 
 ## Dependencies
 
-`httpx`. Nothing else — deliberately, including no config import.
+`httpx`, `redis` via `api.redis_conn`.

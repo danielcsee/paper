@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     #: NCBI asks that clients identify a contact. Unset by default — nothing is
     #: sent to NCBI unless you put an address here yourself.
     ncbi_contact_email: Optional[str] = None
+    #: Requests per second across *every* process, PubTator and PMC together.
+    #: NCBI rate-limits its services as a whole, not per endpoint.
+    ncbi_rate_limit_per_second: float = 3.0
+    #: Where the shared slot lives. The broker's Redis, deliberately: the key is
+    #: ~50 bytes, that instance runs `noeviction`, and it needs no new container.
+    rate_limit_redis_url: str = "redis://localhost:6379/0"
 
     # --- Celery ---
     celery_broker_url: str = "redis://localhost:6379/0"

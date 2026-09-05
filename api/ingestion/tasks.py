@@ -29,6 +29,7 @@ from api.db.models import PaperChunk
 from api.ingestion import persist
 from api.ingestion.embedding import embed_texts, embedding_fingerprint
 from api.ncbi import http as ncbi_http
+from api.redis_conn import close_client as close_redis
 from api.pb_client.models import PaperResponse
 from api.pb_client.pubtator import PubTatorClient
 
@@ -61,15 +62,20 @@ async def _fetch(pmid: int) -> tuple[PaperResponse, dict]:
     )
     try:
         async with ncbi_http.build_client(
-            timeout=settings.http_timeout_seconds, contact_email=settings.ncbi_contact_email
+            timeout=settings.http_timeout_seconds,
+            contact_email=settings.ncbi_contact_email,
+            limiter=ncbi_http.RedisRateLimiter(
+                settings.rate_limit_redis_url, settings.ncbi_rate_limit_per_second
+            ),
         ) as client:
             pubtator = PubTatorClient(client, settings.pubtator_base_url, cache=cache)
             # One request, both representations — asking twice would double our
             # load on a service that tolerates ~3 requests/second.
             paper, raw = await pubtator.fetch_paper_with_raw(pmid, full=True)
     finally:
-        # This loop dies with the task; its connection pool should not outlive it.
+        # This loop dies with the task; neither connection pool should outlive it.
         await cache.aclose()
+        await close_redis(settings.rate_limit_redis_url)
     return paper, raw
 
 
