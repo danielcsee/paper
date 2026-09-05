@@ -49,6 +49,11 @@ A preview's contents, shared by search, corpus, answers and references.
 
 One row per paper: a coloured dot, the title and its state.
 
+A new import replaces the panel rather than adding to it, so finished rows from
+an earlier batch do not linger. Papers still in flight are kept — dropping those
+would hide running work — and they clear themselves once they finish. The rule
+lives in `nextTrackedPapers`, split out of the hook so it can be tested alone.
+
 ## `OpenInTabButton.tsx`
 
 Opens a paper in a background tab. A **sibling** of the card, never a child.

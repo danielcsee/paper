@@ -59,6 +59,29 @@ function seedFromResponse(
   })
 }
 
+/**
+ * What the panel shows after a new import is queued.
+ *
+ * A new import starts a fresh panel: finished rows from an earlier batch are
+ * cleared rather than accumulating, so the panel always describes the import
+ * you just started. Papers still in flight are the one exception — dropping
+ * those would hide work that is still running, and they clear themselves once
+ * they reach a terminal state.
+ */
+export function nextTrackedPapers(
+  previous: readonly TrackedPaper[],
+  incoming: readonly TrackedPaper[],
+): TrackedPaper[] {
+  const incomingPmids = new Set(
+    incoming.map((paper) => paper.pmid).filter((pmid): pmid is number => pmid != null),
+  )
+  const stillRunning = previous.filter(
+    (paper) =>
+      !TERMINAL.has(paper.state) && paper.pmid != null && !incomingPmids.has(paper.pmid),
+  )
+  return [...stillRunning, ...incoming]
+}
+
 export interface ImportStatusState {
   papers: TrackedPaper[]
   polling: boolean
@@ -150,15 +173,7 @@ export function useImportStatus(): ImportStatusState {
       }
       const incoming = seedFromResponse(response, titles)
 
-      // Merge by pmid: a paper still importing must not vanish because a
-      // second batch was queued.
-      setPapers((prev) => {
-        const merged = new Map<string, TrackedPaper>()
-        for (const paper of [...prev, ...incoming]) {
-          merged.set(paper.pmid != null ? `pmid:${paper.pmid}` : `rejected:${merged.size}`, paper)
-        }
-        return [...merged.values()]
-      })
+      setPapers((prev) => nextTrackedPapers(prev, incoming))
 
       setGaveUp(false)
       tickRef.current = 0
