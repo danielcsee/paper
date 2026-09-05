@@ -1,6 +1,6 @@
 # scripts
 
-Developer tooling. One script today.
+Developer tooling.
 
 ## `dev.sh`
 
@@ -25,6 +25,46 @@ It is idempotent and safe to re-run. In order it will:
 
 Ctrl-C stops the app processes. **The datastores keep running** — stop them
 with `docker compose down`.
+
+## `stop.sh`
+
+Stops everything `dev.sh` starts — the host processes and this project's
+containers.
+
+```bash
+./scripts/stop.sh              # app processes and datastores
+./scripts/stop.sh --apps-only  # leave Postgres/Neo4j/Redis running
+./scripts/stop.sh --dry-run    # list what would be stopped
+```
+
+It finds processes by *what they are* — uvicorn, Celery, Vite whose command line
+or working directory is this checkout — not by who started them, so a server
+launched by hand outside `dev.sh` is stopped too. That case is not hypothetical:
+two uvicorns can hold `:8000` at once, one bound to `127.0.0.1` and one to
+`0.0.0.0`, and the kernel prefers the specific bind, so the stale one keeps
+serving `localhost` while a restart appears to have worked.
+
+Afterwards it re-checks the API port and kills anything of ours still holding
+it, which catches uvicorn's `--reload` child — its command line names neither
+uvicorn nor the app, so no pattern matches it directly.
+
+## `cleanup.sh`
+
+```bash
+./scripts/cleanup.sh            # this project's containers and orphans
+./scripts/cleanup.sh --full     # everything; see below
+./scripts/cleanup.sh --dry-run  # print the plan, change nothing
+```
+
+Default is scoped to this project and **keeps volumes**, so imported papers
+survive.
+
+`--full` removes **every container on this Docker host**, including other
+Compose projects', then drops this project's volumes and images and deletes
+`.venv/`, `ui/node_modules/` and `ui/dist/`. Volumes and images stay scoped to
+this project — rebuilding this project should not delete another one's database.
+It prints the foreign containers by name and requires you to type the project
+name to continue; `--yes` skips that for scripted use.
 
 ## Ports
 
