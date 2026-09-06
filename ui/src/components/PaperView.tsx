@@ -7,7 +7,7 @@ import {
   type PaperDetail,
   type PaperEntity,
 } from '../api'
-import { toSegments } from '../highlight'
+import { toSegments, type Segment } from '../highlight'
 import PaperEntities from './PaperEntities'
 
 interface Props {
@@ -107,6 +107,23 @@ export default function PaperView({
     // onLoaded is a fresh closure each render; re-fetching on it would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId])
+
+  // Segments, computed once per selection rather than per render, with each
+  // highlighted run numbered in document order. That numbering has to match the
+  // order `querySelectorAll('.entity-mark')` returns, since the chevrons and the
+  // scroll map both index into that.
+  const paragraphSegments = useMemo(() => {
+    const byOrdinal = new Map<number, { segments: Segment[]; firstMark: number }>()
+    let seen = 0
+    for (const paragraph of paper?.paragraphs ?? []) {
+      const spans = spansByOrdinal.get(paragraph.ordinal)
+      if (!spans) continue
+      const segments = toSegments(paragraph.text, spans)
+      byOrdinal.set(paragraph.ordinal, { segments, firstMark: seen })
+      seen += segments.filter((segment) => segment.highlighted).length
+    }
+    return byOrdinal
+  }, [paper, spansByOrdinal])
 
   // A different paper starts at its own top, not where the last one was left.
   useEffect(() => {
@@ -274,17 +291,21 @@ export default function PaperView({
 
             // Without a selection this is the same single text node as
             // before, so the ordinary reading path is untouched.
-            const spans = spansByOrdinal.get(paragraph.ordinal)
-            const body = spans
-              ? toSegments(paragraph.text, spans).map((segment, index) =>
-                  segment.highlighted ? (
-                    <mark key={index} className="entity-mark">
+            const entry = paragraphSegments.get(paragraph.ordinal)
+            let markIndex = entry?.firstMark ?? 0
+            const body = entry
+              ? entry.segments.map((segment, index) => {
+                  if (!segment.highlighted) return <span key={index}>{segment.text}</span>
+                  const isCurrent = markIndex++ === current
+                  return (
+                    <mark
+                      key={index}
+                      className={`entity-mark${isCurrent ? ' entity-mark-current' : ''}`}
+                    >
                       {segment.text}
                     </mark>
-                  ) : (
-                    <span key={index}>{segment.text}</span>
-                  ),
-                )
+                  )
+                })
               : paragraph.text
 
             return (

@@ -9,6 +9,8 @@
   /* Highlighter yellow. Deliberately not the accent: an orange highlight over
      orange-accented UI reads as another control rather than as marked text. */
   --highlight: #fdf06a;
+  /* Channels, so the same yellow can be laid down at partial strength. */
+  --highlight-rgb: 253 240 106;
   --highlight-edge: #e9d63f;
   --highlight-text: #1f1e1c;
   --radius: 10px;
@@ -31,6 +33,7 @@
     /* Slightly deeper on dark so it marks the text rather than glaring, and
        the ink stays dark — that is what a highlighter looks like. */
     --highlight: #e7d152;
+    --highlight-rgb: 231 209 82;
     --highlight-edge: #c9b53d;
     --highlight-text: #1f1e1c;
   }
@@ -626,14 +629,22 @@ body {
   font-weight: 560;
 }
 
+/* Every occurrence is marked, but only the one the chevrons are on is at full
+   strength — the same relationship the scroll map ticks have. The text keeps
+   its own colour underneath the wash so it stays readable in both themes. */
 .entity-mark {
-  background: var(--highlight);
-  color: var(--highlight-text);
+  background: rgb(var(--highlight-rgb) / 0.38);
+  color: inherit;
   border-radius: 2px;
   padding: 0 1px;
   /* Marked words must not shift the line they sit on. */
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+
+.entity-mark-current {
+  background: var(--highlight);
+  color: var(--highlight-text);
 }
 
 /* Fixed, not absolute: the list above scrolls, and a child tooltip would be
