@@ -149,3 +149,24 @@ class ReferenceList(BaseModel):
     #: Importable references, shaped as search results so the UI renders them
     #: with the same card. `score` and `text_hl` are search-only and stay null.
     references: list[SearchResult] = Field(default_factory=list)
+
+
+class PaperEntityItem(BaseModel):
+    """One grounded concept found in a paper, with how it was written there."""
+
+    entity_id: int
+    identifier: str
+    entity_type: str
+    database: str
+    #: PubTator's canonical name. For Species it is the taxon number, which is
+    #: why `names` matters: "9685" is not what anyone calls a cat.
+    name: Optional[str] = None
+    #: Distinct surface forms this paper used, most frequent first.
+    names: list[str] = Field(default_factory=list)
+    mention_count: int
+
+
+class PaperEntityList(BaseModel):
+    paper_id: int
+    total: int
+    entities: list[PaperEntityItem] = Field(default_factory=list)

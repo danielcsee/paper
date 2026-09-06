@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, fetchPaper, isHeading, type PaperDetail } from '../api'
+import PaperEntities from './PaperEntities'
 
 interface Props {
   paperId: number
@@ -120,7 +121,8 @@ export default function PaperView({
   let lastSection: string | null = null
 
   return (
-    <section className="paper" aria-label={paper.title ?? 'Paper'}>
+    <section className="paper paper-with-entities" aria-label={paper.title ?? 'Paper'}>
+      <PaperEntities paperId={paper.paper_id} />
       <div className="paper-scroll" ref={scrollRef}>
         <article className="paper-doc">
           <header className="paper-doc-header">

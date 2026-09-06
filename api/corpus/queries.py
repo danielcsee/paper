@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.orm import Session
 
 from api.corpus.models import (
@@ -286,3 +286,52 @@ def to_search_result(paper: PaperResponse) -> SearchResult:
         text_hl=None,
         snippet=snippet,
     )
+
+
+def paper_entities(session: Session, paper_id: int) -> list[dict]:
+    """Every grounded concept mentioned in one paper, most-mentioned first.
+
+    One grouped query rather than a row per mention: a paper carries 13-71
+    distinct entities but hundreds of mentions, and the panel needs the
+    concepts, not the spans.
+
+    `surface_text` is aggregated because `entities.name` is not always usable —
+    PubTator gives Species no name, so it falls back to the taxon id, and
+    "9685" is not what anyone calls a cat. The surface forms are what the paper
+    itself wrote, ordered by how often, so the first is the best label.
+    """
+    rows = session.execute(
+        text(
+            """
+            SELECT e.id, e.identifier, e.entity_type, e.database, e.name,
+                   count(*) AS mention_count,
+                   (SELECT array_agg(surface ORDER BY uses DESC, surface)
+                      FROM (SELECT m2.surface_text AS surface, count(*) AS uses
+                              FROM paper_entity_mentions m2
+                             WHERE m2.paper_id = m.paper_id
+                               AND m2.entity_id = e.id
+                               AND m2.surface_text IS NOT NULL
+                               AND btrim(m2.surface_text) <> ''
+                             GROUP BY m2.surface_text) s) AS names
+              FROM paper_entity_mentions m
+              JOIN entities e ON e.id = m.entity_id
+             WHERE m.paper_id = :paper_id
+             GROUP BY e.id, e.identifier, e.entity_type, e.database, e.name, m.paper_id
+             ORDER BY count(*) DESC, e.name
+            """
+        ),
+        {"paper_id": paper_id},
+    ).all()
+
+    return [
+        {
+            "entity_id": row.id,
+            "identifier": row.identifier,
+            "entity_type": row.entity_type,
+            "database": row.database,
+            "name": row.name,
+            "names": list(row.names or []),
+            "mention_count": row.mention_count,
+        }
+        for row in rows
+    ]
