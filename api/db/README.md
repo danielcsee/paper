@@ -34,13 +34,17 @@ abstract-only. Those still get a row, with `has_full_text = false`.
 
 **Constrain identity, not vocabulary.** Vocabularies NCBI controls
 (`section_type`, `entity_type`, `relation_type`) are unconstrained text, so a
-new upstream value cannot become an ingest failure. `entities.identifier` is
-different — it *is* the row's identity, and a blank one means nothing. Two
-shapes pass: a bare number (`672`) or a prefixed id (`MESH:D065627`). The
-suffix is alphanumeric, not numeric — MeSH ids are a letter and digits, and are
-most of the corpus. `pb_client.models.normalise_identifier` applies the same
-rule at ingest, dropping a bad id with a warning rather than failing the
-import. Vocabularies we own (`stage`, `status`) are constrained too.
+new upstream value cannot become an ingest failure. Ones we own (`stage`,
+`status`) are constrained. `entities.identifier` is constrained because it *is*
+the row's identity — a blank one means nothing, and the suffix is alphanumeric
+rather than numeric, MeSH ids being a letter and digits.
+
+Ids are stored namespaced. `MESH:D065627` already is; a bare id is **qualified
+with its source database** — `672` becomes `ncbi_gene:672` — because a bare
+number is unique only within one NCBI database, and gene 9606 and taxon 9606
+would otherwise collide on one row. `pb_client.models.normalise_identifier`
+applies the same rule at ingest, dropping a bad id with a warning rather than
+failing the import.
 
 ## Subdirectories
 

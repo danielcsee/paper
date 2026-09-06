@@ -269,7 +269,7 @@ def _to_annotation(raw: dict) -> Optional[Annotation]:
     identifier = infons.get("identifier")
     # `bool(" ")` is True, so the old `identifier != "-"` test let a
     # whitespace-only id through as grounded and into the entities table.
-    grounded_id = normalise_identifier(identifier)
+    grounded_id = normalise_identifier(identifier, infons.get("database"))
     normalized = infons.get("normalized_id")
     return Annotation(
         id=raw.get("id"),

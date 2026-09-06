@@ -190,7 +190,10 @@ class Entity(Base):
     __tablename__ = "entities"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    #: Prefixed concept id: "MESH:D002118", "672" (NCBI Gene), "CVCL:0031", …
+    #: Namespaced concept id: "MESH:D002118", "ncbi_gene:672", "CVCL:0031", …
+    #: Ids that arrive bare are qualified with their source database at ingest,
+    #: because a bare number is unique only within one NCBI database — gene
+    #: 9606 and taxon 9606 are different concepts and this column is unique.
     identifier: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     #: Gene | Disease | Chemical | Species | CellLine | Variant | Chromosome
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -202,9 +205,11 @@ class Entity(Base):
     #: this is the backstop for anything that bypasses that path.
     #:
     #: The suffix is alphanumeric, not numeric — MeSH ids are a letter and
-    #: digits ("MESH:D065627") and are the bulk of the corpus, while Gene and
-    #: Species carry no prefix at all ("672", "9606").
-    IDENTIFIER_SQL_RE = r"^([0-9]+|[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9._\-]+)$"
+    #: digits ("MESH:D065627") and are the bulk of the corpus. Ids that arrive
+    #: bare are qualified with their source database at ingest
+    #: ("672" -> "ncbi_gene:672"), so the prefix must admit underscores. A bare
+    #: number stays legal for the case where that database is unknown.
+    IDENTIFIER_SQL_RE = r"^([0-9]+|[A-Za-z][A-Za-z0-9_]*:[A-Za-z0-9._\-]+)$"
 
     __table_args__ = (
         CheckConstraint(
