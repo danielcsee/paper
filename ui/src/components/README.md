@@ -48,11 +48,31 @@ that name is really the identifier. PubTator names no Species, so taxon 9685
 arrives called "9685"; `api.eu_client` resolves it to "domestic cat", and the
 fallback covers what E-utilities cannot name (Cellosaurus, OMIM, merged taxa).
 
+Clicking a pill highlights every occurrence of that entity in the text and
+scrolls the first into view; clicking it again, or Escape, clears it. The
+highlight is `--highlight` (highlighter yellow), deliberately not the orange
+accent — an orange highlight beside orange-accented controls reads as another
+control rather than as marked text.
+
 The tooltip is `position: fixed` and placed in a layout effect, not an
 absolutely-positioned child: the list scrolls, so a child would be clipped for
 every pill near the top edge, which is where the most-mentioned entities are.
 It flips below the pill when there is no room above, measuring against the
 panel's top rather than the viewport's so it never covers the app header.
+
+## Highlighting
+
+`../highlight.ts` turns a paragraph and a list of spans into plain and marked
+runs. Every span is checked against the text before it is drawn — the slice
+must equal what the server said is there — and dropped otherwise. Postgres
+counts characters where JavaScript counts UTF-16 units, so one astral character
+earlier in a paragraph would shift every later span, and a highlight over the
+wrong words is worse than none. Overlaps are merged so `<mark>` elements cannot
+cross.
+
+Scrolling to the first match is instant, not smooth: the first mention can be
+thousands of pixels away, and `behavior: 'smooth'` measured as a no-op in the
+test browser, so it would have silently done nothing.
 
 ## `PaperTabs.tsx`
 

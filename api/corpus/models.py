@@ -151,6 +151,26 @@ class ReferenceList(BaseModel):
     references: list[SearchResult] = Field(default_factory=list)
 
 
+class EntitySpan(BaseModel):
+    """Where one mention sits in the rendered document.
+
+    `start` is relative to the paragraph, not the document: the client slices
+    `paragraph.text` directly and never learns the document coordinate space.
+
+    `text` is what should be at that slice. Carrying it lets the client verify
+    before highlighting — Postgres counts characters where JavaScript counts
+    UTF-16 units, so a non-BMP character anywhere earlier in the paragraph
+    would shift every later span. This corpus is pure ASCII today, which is a
+    property of the data rather than a guarantee.
+    """
+
+    #: `PaperParagraph.ordinal`, so the client needs no chunk ids.
+    ordinal: int
+    start: int
+    length: int
+    text: str
+
+
 class PaperEntityItem(BaseModel):
     """One grounded concept found in a paper, with how it was written there."""
 
@@ -164,6 +184,8 @@ class PaperEntityItem(BaseModel):
     #: Distinct surface forms this paper used, most frequent first.
     names: list[str] = Field(default_factory=list)
     mention_count: int
+    #: Every occurrence, in reading order.
+    spans: list[EntitySpan] = Field(default_factory=list)
 
 
 class PaperEntityList(BaseModel):

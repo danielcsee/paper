@@ -22,6 +22,7 @@ from api.db.models import (
     Paper,
     PaperAuthor,
     PaperChunk,
+    PaperEntityMention,
     PaperReference,
     PaperStageRun,
 )
@@ -323,6 +324,7 @@ def paper_entities(session: Session, paper_id: int) -> list[dict]:
         {"paper_id": paper_id},
     ).all()
 
+    spans = paper_entity_spans(session, paper_id)
     return [
         {
             "entity_id": row.id,
@@ -332,6 +334,47 @@ def paper_entities(session: Session, paper_id: int) -> list[dict]:
             "name": row.name,
             "names": list(row.names or []),
             "mention_count": row.mention_count,
+            "spans": spans.get(row.id, []),
         }
         for row in rows
     ]
+
+
+def paper_entity_spans(session: Session, paper_id: int) -> dict[int, list[dict]]:
+    """entity id -> where each of its mentions sits, in reading order.
+
+    Offsets are made paragraph-relative here. `char_offset` is a document
+    offset and `paper_chunks.char_start` is where the chunk begins, so the
+    difference is the index into the text the reader actually renders. Verified
+    across the corpus: this slice equals `surface_text` for every stored
+    mention.
+
+    A mention whose chunk was cleared by re-chunking (`chunk_id` is ON DELETE
+    SET NULL) has nowhere to be drawn and is skipped.
+    """
+    rows = session.execute(
+        select(
+            PaperEntityMention.entity_id,
+            PaperChunk.ordinal,
+            (PaperEntityMention.char_offset - PaperChunk.char_start).label("start"),
+            PaperEntityMention.length,
+            PaperEntityMention.surface_text,
+        )
+        .join(PaperChunk, PaperChunk.id == PaperEntityMention.chunk_id)
+        .where(PaperEntityMention.paper_id == paper_id)
+        .order_by(PaperChunk.ordinal, "start")
+    ).all()
+
+    spans: dict[int, list[dict]] = {}
+    for row in rows:
+        if row.start < 0 or row.length <= 0 or not row.surface_text:
+            continue
+        spans.setdefault(row.entity_id, []).append(
+            {
+                "ordinal": row.ordinal,
+                "start": row.start,
+                "length": row.length,
+                "text": row.surface_text,
+            }
+        )
+    return spans

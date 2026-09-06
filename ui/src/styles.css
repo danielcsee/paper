@@ -6,6 +6,11 @@
   --text-dim: #6b6963;
   --accent: #b4501f;
   --accent-soft: #f6ece6;
+  /* Highlighter yellow. Deliberately not the accent: an orange highlight over
+     orange-accented UI reads as another control rather than as marked text. */
+  --highlight: #fdf06a;
+  --highlight-edge: #e9d63f;
+  --highlight-text: #1f1e1c;
   --radius: 10px;
   --sidebar-w: 340px;
   --entities-w: 210px;
@@ -23,6 +28,11 @@
     --text-dim: #9b9791;
     --accent: #e0774a;
     --accent-soft: #2e2320;
+    /* Slightly deeper on dark so it marks the text rather than glaring, and
+       the ink stays dark — that is what a highlighter looks like. */
+    --highlight: #e7d152;
+    --highlight-edge: #c9b53d;
+    --highlight-text: #1f1e1c;
   }
 }
 
@@ -528,6 +538,27 @@ body {
   background: var(--accent-soft);
   color: var(--accent);
   outline: none;
+}
+
+/* The selected pill wears the highlight it applies, so the link between the
+   pill and the marked words is visible without reading either. */
+.entity-pill-selected,
+.entity-pill-selected:hover,
+.entity-pill-selected:focus-visible {
+  border-color: var(--highlight-edge);
+  background: var(--highlight);
+  color: var(--highlight-text);
+  font-weight: 560;
+}
+
+.entity-mark {
+  background: var(--highlight);
+  color: var(--highlight-text);
+  border-radius: 2px;
+  padding: 0 1px;
+  /* Marked words must not shift the line they sit on. */
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 /* Fixed, not absolute: the list above scrolls, and a child tooltip would be
