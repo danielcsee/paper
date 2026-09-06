@@ -27,6 +27,7 @@ from api.ingestion.celery_app import celery_app
 from api.db import session_scope
 from api.db.models import PaperChunk
 from api.ingestion import persist
+from api.eu_client import naming
 from api.ingestion.embedding import embed_texts, embedding_fingerprint
 from api.ncbi import http as ncbi_http
 from api.redis_conn import close_client as close_redis
@@ -79,6 +80,30 @@ async def _fetch(pmid: int) -> tuple[PaperResponse, dict]:
     return paper, raw
 
 
+def _name_new_entities(paper_id: int, pmid: int) -> None:
+    """Give names to any concept this paper introduced without one.
+
+    PubTator names Species and CellLines with their own identifier, so without
+    this a new taxon reads as "9685". E-utilities resolves the NCBI ones.
+
+    Deliberately after the stage is marked done, and deliberately swallowing
+    its errors: a missing label is cosmetic, and must never fail — or retry —
+    an import whose data is already stored. Scoped to this paper's own
+    concepts, so a paper that introduces none makes no request at all.
+    """
+    try:
+        with session_scope() as session:
+            pending = naming.unnamed_entities(session, paper_id)
+            if not pending:
+                return
+            names = asyncio.run(naming.resolve_names(pending))
+            written = naming.apply_names(session, names)
+        if written:
+            log.info("named %d entity/entities after ingesting PMID %s", written, pmid)
+    except Exception:
+        log.warning("could not name new entities after PMID %s", pmid, exc_info=True)
+
+
 async def _forget(pmid: int) -> None:
     """Drop a cached document. Best effort: it expires on its own regardless."""
     settings = get_settings()
@@ -128,6 +153,7 @@ def ingest_paper(self, pmid: int, force: bool = False) -> int:
         # Postgres owns the document now, so holding a 24h copy in a capped
         # cache would spend the budget on the one paper that no longer needs it.
         asyncio.run(_forget(pmid))
+        _name_new_entities(paper_id, pmid)
     except Exception as exc:
         with session_scope() as session:
             persist.mark_stage(session, paper_id, "ingest", "failed", error=str(exc)[:500])

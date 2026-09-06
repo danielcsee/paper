@@ -1,8 +1,8 @@
 # Third-party APIs
 
-Every external request this project makes, and what we know about each. Both
-services are NCBI's, which rate-limits them as a whole, so both draw on **one
-shared budget of ~3 requests/second** enforced in
+Every external request this project makes, and what we know about each. All
+three services are NCBI's, which rate-limits them as a whole, so they draw on
+**one shared budget of ~3 requests/second** enforced in
 [`api/ncbi/http.py`](api/ncbi/http.py). The budget is a single Redis key, so it
 holds across the web process and every Celery worker, not just within one.
 
@@ -103,12 +103,44 @@ long tail of media files.
 
 ---
 
+## NCBI E-utilities
+
+Base: `https://eutils.ncbi.nlm.nih.gov/entrez/eutils`
+Client: [`api/eu_client/eutils.py`](api/eu_client/eutils.py) — no HTTP surface
+
+Used for one job: naming concepts PubTator leaves unnamed. It sends
+`"name": "9606"` for Species and `"name": "4362"` for CellLine — the identifier
+again — because it has no label for those types.
+
+### `GET /esummary.fcgi`
+
+| Param | Notes |
+|---|---|
+| `db` | `taxonomy` or `gene`. Others are not used. |
+| `id` | Comma-separated. Batched; 62 taxon ids is one call. |
+| `retmode` | `json`. |
+
+```
+db=taxonomy&id=9685,9606
+  9685 -> scientificname "Felis catus",  commonname "domestic cat"
+  9606 -> scientificname "Homo sapiens", commonname "human"
+```
+
+No API key. A retired taxon returns `status: "merged"` with **both** name fields
+empty rather than an error, so those concepts keep their fallback label.
+
+Only NCBI ids resolve here: `CVCL:` is Cellosaurus (Expasy) and `OMIM:` needs
+an omim.org key. Neither is called.
+
+---
+
 ## Not used
 
-**NCBI E-utilities** (`efetch`/`esearch`). Noted because it is the obvious thing
-to reach for: `efetch` on `pubmed` takes PMIDs and returns abstracts only,
-`efetch` on `pmc` takes PMCIDs and returns full text. The same PMID/PMCID split
-applies there, so it buys us nothing the two services above do not already give.
+**`efetch` / `esearch`.** Noted because they are the obvious things to reach for
+alongside `esummary` above: `efetch` on `pubmed` takes PMIDs and returns
+abstracts only, `efetch` on `pmc` takes PMCIDs and returns full text. The same
+PMID/PMCID split applies there, so they buy us nothing PubTator and the PMC
+bucket do not already give.
 
 See [`pmcid vs pmid.txt`](pmcid%20vs%20pmid.txt) for the measurements behind the
 id constraints.
