@@ -49,7 +49,10 @@ arrives called "9685"; `api.eu_client` resolves it to "domestic cat", and the
 fallback covers what E-utilities cannot name (Cellosaurus, OMIM, merged taxa).
 
 Clicking a pill highlights every occurrence of that entity in the text and
-scrolls the first into view; clicking it again, or Escape, clears it. The
+scrolls the first into view; clicking it again, or Escape, clears it. The title
+then gains `‹ 1/315 ›` — divided from it by a left border, the way the top bar
+divides the brand from its tabs — stepping through occurrences and wrapping at
+either end, as find-next does. The
 highlight is `--highlight` (highlighter yellow), deliberately not the orange
 accent — an orange highlight beside orange-accented controls reads as another
 control rather than as marked text.
@@ -69,6 +72,17 @@ counts characters where JavaScript counts UTF-16 units, so one astral character
 earlier in a paragraph would shift every later span, and a highlight over the
 wrong words is worse than none. Overlaps are merged so `<mark>` elements cannot
 cross.
+
+`PaperView` also draws a **scroll map** down the reader's right edge: one tick
+per occurrence, placed at its fraction of the scrollable height, so the reader
+can see how far the next one is before scrolling for it. The current occurrence
+is opaque and slightly larger; the rest are translucent, so a dense run reads
+as density rather than a solid bar.
+
+Tick positions are measured from the DOM rather than derived from the offsets,
+because only layout knows how tall a paragraph became — and they are
+re-measured on resize, since reflow moves every mark. The map is a sibling of
+the scrolling element, not a child, or it would scroll away with the text.
 
 Scrolling to the first match is instant, not smooth: the first mention can be
 thousands of pixels away, and `behavior: 'smooth'` measured as a no-op in the

@@ -1,12 +1,23 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ApiError, entityLabel, fetchPaperEntities, type PaperEntity } from '../api'
 
+/** Stepping through the selected entity's occurrences. */
+export interface OccurrenceNav {
+  /** 1-based position, 0 when there is nothing to step through. */
+  current: number
+  total: number
+  onPrevious: () => void
+  onNext: () => void
+}
+
 interface Props {
   paperId: number
   /** The entity whose mentions are highlighted, if any. */
   selectedId: number | null
   /** Null clears the selection. */
   onSelect: (entity: PaperEntity | null) => void
+  /** Present only while an entity is selected. */
+  nav: OccurrenceNav | null
 }
 
 interface TipState {
@@ -26,7 +37,7 @@ const TIP_GAP = 8
  * tooltip would be clipped by that scroll container for every pill near the
  * top edge — which is where the most-mentioned entities are.
  */
-export default function PaperEntities({ paperId, selectedId, onSelect }: Props) {
+export default function PaperEntities({ paperId, selectedId, onSelect, nav }: Props) {
   const [entities, setEntities] = useState<PaperEntity[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -105,7 +116,36 @@ export default function PaperEntities({ paperId, selectedId, onSelect }: Props) 
   return (
     <aside className="paper-entities" aria-label="Entities in this paper" ref={panelRef}>
       <h2 className="paper-entities-title">
-        Entities{!loading && !error && entities.length > 0 && ` (${entities.length})`}
+        <span>
+          Entities{!loading && !error && entities.length > 0 && ` (${entities.length})`}
+        </span>
+        {nav && (
+          // Divided from the title the way the top bar divides litgraph from
+          // its tabs: a left border, not a glyph.
+          <span className="entity-nav">
+            <button
+              type="button"
+              className="entity-nav-step"
+              onClick={nav.onPrevious}
+              disabled={nav.total === 0}
+              aria-label="Previous occurrence"
+            >
+              &lsaquo;
+            </button>
+            <span className="entity-nav-count">
+              {nav.current}/{nav.total}
+            </span>
+            <button
+              type="button"
+              className="entity-nav-step"
+              onClick={nav.onNext}
+              disabled={nav.total === 0}
+              aria-label="Next occurrence"
+            >
+              &rsaquo;
+            </button>
+          </span>
+        )}
       </h2>
 
       {loading && (
