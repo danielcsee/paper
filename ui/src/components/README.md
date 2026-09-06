@@ -77,7 +77,14 @@ cross.
 per occurrence, placed at its fraction of the scrollable height, so the reader
 can see how far the next one is before scrolling for it. The current occurrence
 is opaque and slightly larger; the rest are translucent, so a dense run reads
-as density rather than a solid bar.
+as density rather than a solid bar. The in-text marks follow the same rule —
+the current one is the full yellow with dark ink, every other occurrence is the
+same yellow at 38%, keeping its own text colour so it stays readable in both
+themes.
+
+Marks are numbered during render in document order, and that numbering must
+match what `querySelectorAll('.entity-mark')` returns, since the chevrons and
+the map both index into it.
 
 Tick positions are measured from the DOM rather than derived from the offsets,
 because only layout knows how tall a paragraph became — and they are
