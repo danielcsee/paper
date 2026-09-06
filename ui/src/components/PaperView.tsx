@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { ApiError, fetchPaper, isHeading, type PaperDetail } from '../api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ApiError,
+  fetchPaper,
+  isHeading,
+  type EntitySpan,
+  type PaperDetail,
+  type PaperEntity,
+} from '../api'
+import { toSegments } from '../highlight'
 import PaperEntities from './PaperEntities'
 
 interface Props {
@@ -55,7 +63,21 @@ export default function PaperView({
   const [paper, setPaper] = useState<PaperDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<PaperEntity | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Spans arrive in reading order for the whole paper; the renderer wants them
+  // per paragraph, so bucket once per selection rather than filtering 634 of
+  // them inside every paragraph on every render.
+  const spansByOrdinal = useMemo(() => {
+    const byOrdinal = new Map<number, EntitySpan[]>()
+    for (const span of selected?.spans ?? []) {
+      const bucket = byOrdinal.get(span.ordinal)
+      if (bucket) bucket.push(span)
+      else byOrdinal.set(span.ordinal, [span])
+    }
+    return byOrdinal
+  }, [selected])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -84,7 +106,30 @@ export default function PaperView({
   // A different paper starts at its own top, not where the last one was left.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 })
+    setSelected(null)
   }, [paperId])
+
+  // Take the reader to the first occurrence. With up to 634 mentions in a
+  // paper, a highlight somewhere below the fold is not much use.
+  //
+  // Instant, not smooth. The first mention can be 4,000px down, which is a long
+  // disorienting slide rather than a helpful one — and `behavior: 'smooth'`
+  // measured as a no-op here, so it would have silently done nothing at all.
+  useEffect(() => {
+    if (!selected) return
+    const first = scrollRef.current?.querySelector('.entity-mark')
+    first?.scrollIntoView({ block: 'center' })
+  }, [selected])
+
+  // Escape clears the highlight, the usual way out of a mode.
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelected(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected])
 
   if (loading) {
     return (
@@ -122,7 +167,11 @@ export default function PaperView({
 
   return (
     <section className="paper paper-with-entities" aria-label={paper.title ?? 'Paper'}>
-      <PaperEntities paperId={paper.paper_id} />
+      <PaperEntities
+        paperId={paper.paper_id}
+        selectedId={selected?.entity_id ?? null}
+        onSelect={setSelected}
+      />
       <div className="paper-scroll" ref={scrollRef}>
         <article className="paper-doc">
           <header className="paper-doc-header">
@@ -164,13 +213,28 @@ export default function PaperView({
               : null
             lastSection = paragraph.section_type ?? lastSection
 
+            // Without a selection this is the same single text node as
+            // before, so the ordinary reading path is untouched.
+            const spans = spansByOrdinal.get(paragraph.ordinal)
+            const body = spans
+              ? toSegments(paragraph.text, spans).map((segment, index) =>
+                  segment.highlighted ? (
+                    <mark key={index} className="entity-mark">
+                      {segment.text}
+                    </mark>
+                  ) : (
+                    <span key={index}>{segment.text}</span>
+                  ),
+                )
+              : paragraph.text
+
             return (
               <div key={paragraph.ordinal}>
                 {label && <h2 className="paper-doc-section">{label}</h2>}
                 {isHeading(paragraph) ? (
-                  <h3 className="paper-doc-heading">{paragraph.text}</h3>
+                  <h3 className="paper-doc-heading">{body}</h3>
                 ) : (
-                  <p className="paper-doc-para">{paragraph.text}</p>
+                  <p className="paper-doc-para">{body}</p>
                 )}
               </div>
             )

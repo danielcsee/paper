@@ -3,6 +3,10 @@ import { ApiError, entityLabel, fetchPaperEntities, type PaperEntity } from '../
 
 interface Props {
   paperId: number
+  /** The entity whose mentions are highlighted, if any. */
+  selectedId: number | null
+  /** Null clears the selection. */
+  onSelect: (entity: PaperEntity | null) => void
 }
 
 interface TipState {
@@ -22,7 +26,7 @@ const TIP_GAP = 8
  * tooltip would be clipped by that scroll container for every pill near the
  * top edge — which is where the most-mentioned entities are.
  */
-export default function PaperEntities({ paperId }: Props) {
+export default function PaperEntities({ paperId, selectedId, onSelect }: Props) {
   const [entities, setEntities] = useState<PaperEntity[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -119,8 +123,13 @@ export default function PaperEntities({ paperId }: Props) {
           <button
             key={entity.entity_id}
             type="button"
-            className="entity-pill"
-            title=""
+            className={`entity-pill${
+              entity.entity_id === selectedId ? ' entity-pill-selected' : ''
+            }`}
+            aria-pressed={entity.entity_id === selectedId}
+            // Clicking the selected pill clears it, so the highlight has an
+            // obvious way out besides Escape.
+            onClick={() => onSelect(entity.entity_id === selectedId ? null : entity)}
             onMouseEnter={(event) => show(entity, event.currentTarget)}
             onMouseLeave={() => setTip(null)}
             onFocus={(event) => show(entity, event.currentTarget)}

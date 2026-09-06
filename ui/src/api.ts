@@ -275,6 +275,16 @@ export async function fetchPaper(
 
 // --- entities in one paper ---
 
+export interface EntitySpan {
+  /** Matches `PaperParagraph.ordinal`. */
+  ordinal: number
+  /** Index into that paragraph's text, not the document's. */
+  start: number
+  length: number
+  /** What should be at that slice; the client verifies before highlighting. */
+  text: string
+}
+
 export interface PaperEntity {
   entity_id: number
   identifier: string
@@ -285,6 +295,8 @@ export interface PaperEntity {
   /** How the paper itself wrote this concept, most frequent first. */
   names: string[]
   mention_count: number
+  /** Every occurrence, in reading order. */
+  spans: EntitySpan[]
 }
 
 export interface PaperEntityList {

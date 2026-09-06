@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from api.corpus import queries, rag
 from api.ncbi.errors import NcbiError
 from api.corpus.models import (
+    EntitySpan,
     PaperEntityItem,
     PaperEntityList,
     DEFAULT_PAGE_SIZE,
