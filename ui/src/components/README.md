@@ -43,9 +43,10 @@ paper's references in the panel.
 The concepts PubTator grounded in this paper, as oval pills, most-mentioned
 first. Hovering one shows the wordings the paper itself used, above the pill.
 
-Labels prefer `entities.name` but fall back to the commonest surface form when
-that name is really the identifier — PubTator names no Species, so taxon 9685
-arrives called "9685" and is shown as "cats".
+Labels prefer `entities.name`, falling back to the commonest surface form when
+that name is really the identifier. PubTator names no Species, so taxon 9685
+arrives called "9685"; `api.eu_client` resolves it to "domestic cat", and the
+fallback covers what E-utilities cannot name (Cellosaurus, OMIM, merged taxa).
 
 The tooltip is `position: fixed` and placed in a layout effect, not an
 absolutely-positioned child: the list scrolls, so a child would be clipped for

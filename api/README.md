@@ -18,6 +18,7 @@ datastores and applies migrations.
 | [`ncbi/`](ncbi) | Shared HTTP plumbing for the NCBI clients: pool, rate limit, errors |
 | [`pb_client/`](pb_client) | PubTator3: search and full annotated papers (`/pb`) |
 | [`pm_client/`](pm_client) | PMC Open Access: downloads article files (`/pm`) |
+| [`eu_client/`](eu_client) | E-utilities: names the concepts PubTator leaves unnamed |
 | [`db/`](db) | SQLAlchemy models, session plumbing, and Alembic migrations |
 | [`ingestion/`](ingestion) | Celery import pipeline and the `/import` routes |
 | [`corpus/`](corpus) | Read-only `/corpus` listing of imported papers |

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # --- NCBI ---
     pubtator_base_url: str = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
     pmc_s3_base_url: str = "https://pmc-oa-opendata.s3.amazonaws.com"
+    #: E-utilities, used only to put names on concepts PubTator leaves unnamed.
+    eutils_base_url: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
     #: Root for downloaded articles; each gets a <papers_dir>/<PMCID>/ directory.
     papers_dir: Path = REPO_ROOT / "papers" / "pmc_subset"
     http_timeout_seconds: float = 60.0
