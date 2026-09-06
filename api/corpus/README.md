@@ -7,6 +7,7 @@ GET /corpus?page=1&page_size=20   ->  CorpusPage        (the listing)
 GET /corpus/rag_search?query=...  ->  RagSearchResponse (ranked papers)
 GET /corpus/{paper_id}            ->  CorpusPaperDetail (one whole paper)
 GET /corpus/{paper_id}/references ->  ReferenceList     (importable refs)
+GET /corpus/{paper_id}/entities   ->  PaperEntityList   (grounded concepts)
 ```
 
 Read-only: `api.ingestion` writes these tables, this package reads them.

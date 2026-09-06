@@ -34,8 +34,24 @@ corner icon opens one in the background.
 
 ## `PaperView.tsx`
 
-One paper laid out for reading. Headings come from `chunk_type`. The orange
-"view references" link opens that paper's references in the panel.
+One paper laid out for reading, with `PaperEntities` as its left column.
+Headings come from `chunk_type`. The orange "view references" link opens that
+paper's references in the panel.
+
+## `PaperEntities.tsx`
+
+The concepts PubTator grounded in this paper, as oval pills, most-mentioned
+first. Hovering one shows the wordings the paper itself used, above the pill.
+
+Labels prefer `entities.name` but fall back to the commonest surface form when
+that name is really the identifier — PubTator names no Species, so taxon 9685
+arrives called "9685" and is shown as "cats".
+
+The tooltip is `position: fixed` and placed in a layout effect, not an
+absolutely-positioned child: the list scrolls, so a child would be clipped for
+every pill near the top edge, which is where the most-mentioned entities are.
+It flips below the pill when there is no room above, measuring against the
+panel's top rather than the viewport's so it never covers the app header.
 
 ## `PaperTabs.tsx`
 

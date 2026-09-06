@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from api.corpus import queries, rag
 from api.ncbi.errors import NcbiError
 from api.corpus.models import (
+    PaperEntityItem,
+    PaperEntityList,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     CorpusPage,
@@ -164,6 +166,32 @@ async def paper_references(
         with_pmid=with_pmid,
         truncated=truncated,
         references=references,
+    )
+
+
+@router.get(
+    "/corpus/{paper_id}/entities",
+    response_model=PaperEntityList,
+    summary="Grounded concepts mentioned in a stored paper",
+)
+def paper_entities(paper_id: int = Path(..., ge=1)) -> PaperEntityList:
+    """Every entity this paper mentions, most-mentioned first.
+
+    Sync, unlike its `/references` neighbour: this is one grouped Postgres
+    query and never leaves the machine, so it belongs in the threadpool rather
+    than on the event loop.
+    """
+    with session_scope() as session:
+        if queries.get_paper(session, paper_id) is None:
+            raise HTTPException(
+                status_code=404, detail=f"paper {paper_id} is not in your corpus"
+            )
+        rows = queries.paper_entities(session, paper_id)
+
+    return PaperEntityList(
+        paper_id=paper_id,
+        total=len(rows),
+        entities=[PaperEntityItem(**row) for row in rows],
     )
 
 

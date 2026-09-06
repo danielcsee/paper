@@ -273,6 +273,58 @@ export async function fetchPaper(
   return (await response.json()) as PaperDetail
 }
 
+// --- entities in one paper ---
+
+export interface PaperEntity {
+  entity_id: number
+  identifier: string
+  entity_type: string
+  database: string
+  /** PubTator's canonical name. For Species it is the taxon number. */
+  name: string | null
+  /** How the paper itself wrote this concept, most frequent first. */
+  names: string[]
+  mention_count: number
+}
+
+export interface PaperEntityList {
+  paper_id: number
+  total: number
+  entities: PaperEntity[]
+}
+
+/**
+ * The best short label for an entity.
+ *
+ * `name` first, except when PubTator had none and fell back to the id — Species
+ * come through as "9685" — in which case the paper's own most common wording is
+ * both correct and readable.
+ */
+export function entityLabel(entity: PaperEntity): string {
+  const local = entity.identifier.includes(':')
+    ? entity.identifier.slice(entity.identifier.indexOf(':') + 1)
+    : entity.identifier
+  const name = entity.name?.trim()
+  if (name && name !== local) return name
+  return entity.names[0] ?? local
+}
+
+export async function fetchPaperEntities(
+  paperId: number,
+  signal?: AbortSignal,
+): Promise<PaperEntityList> {
+  const response = await fetch(`/corpus/${paperId}/entities`, { signal })
+  if (!response.ok) {
+    throw new ApiError(
+      response.status === 404
+        ? 'That paper is not in your corpus.'
+        : `could not load entities (${response.status})`,
+      response.status,
+    )
+  }
+  return (await response.json()) as PaperEntityList
+}
+
 // --- rag search ---
 
 export interface RagChunk {
