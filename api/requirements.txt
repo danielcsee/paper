@@ -8,6 +8,8 @@ SQLAlchemy>=2.0,<2.1
 alembic>=1.13,<2
 psycopg[binary]>=3.1,<4
 pgvector>=0.3,<0.5
+# Neo4j: the knowledge graph built from those tables.
+neo4j>=5.26,<6
 # Ingestion pipeline: Celery over Redis, and local chunk embeddings.
 celery[redis]>=5.4,<6
 # Also used directly, for the PubTator document cache.

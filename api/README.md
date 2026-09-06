@@ -21,6 +21,7 @@ datastores and applies migrations.
 | [`db/`](db) | SQLAlchemy models, session plumbing, and Alembic migrations |
 | [`ingestion/`](ingestion) | Celery import pipeline and the `/import` routes |
 | [`corpus/`](corpus) | Read-only `/corpus` listing of imported papers |
+| [`graph/`](graph) | Neo4j schema and the Postgres → knowledge-graph export |
 
 ## Dependencies
 
@@ -30,6 +31,7 @@ Declared in `requirements.txt`:
 - **pydantic-settings** — configuration from environment and `.env`
 - **httpx** — async HTTP client for the NCBI calls
 - **SQLAlchemy** 2.x / **alembic** / **psycopg** (v3) / **pgvector** — Postgres
+- **neo4j** — Bolt driver for the knowledge graph
 - **celery[redis]** / **redis** — task queue, and the document cache
 - **sentence-transformers** — local chunk embeddings (BAAI/bge-base-en-v1.5)
 
@@ -40,5 +42,8 @@ Docker (`docker-compose.yml` at the root).
 
 `/import` runs end to end: it fetches a paper from PubTator, stores it chunked
 with its authors, references, entities, mentions and relations, then embeds
-every chunk. Neo4j is running but untouched — building the graph from these
-tables is the next step.
+every chunk.
+
+The graph is built separately, by [`scripts/build-graph.sh`](../scripts), which
+projects those tables into Neo4j. It is not yet a stage in the import chain —
+`paper_stage_runs` reserves `graph` for when it becomes one.

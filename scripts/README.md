@@ -26,6 +26,20 @@ It is idempotent and safe to re-run. In order it will:
 Ctrl-C stops the app processes. **The datastores keep running** — stop them
 with `docker compose down`.
 
+## `build-graph.sh`
+
+Projects the Postgres corpus into the Neo4j knowledge graph — see
+[`api/graph`](../api/graph).
+
+```bash
+./scripts/build-graph.sh                 # apply schema, then load
+./scripts/build-graph.sh --schema-only   # constraints and indexes only
+./scripts/build-graph.sh --reset         # wipe nodes and edges, then reload
+```
+
+Idempotent: every node is merged on its key, so re-run it after importing more
+papers. `--reset` clears data but keeps the constraints.
+
 ## `stop.sh`
 
 Stops everything `dev.sh` starts — the host processes and this project's
