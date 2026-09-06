@@ -337,6 +337,30 @@ def replace_references(session: Session, paper_id: int, paper: PaperResponse) ->
     return len(rows)
 
 
+#: The source database for the two entity types whose ids ever arrive bare.
+#: Used only when a relation names a concept no annotation in the same paper
+#: did, so there is nothing to read the database from.
+TYPE_DATABASES = {"Gene": "ncbi_gene", "Species": "ncbi_taxonomy"}
+
+
+def concept_databases(paper: PaperResponse) -> dict[str, str]:
+    """identifier -> source database, from this paper's annotations.
+
+    Keyed on both the identifier as it arrived and its bare suffix, so a lookup
+    succeeds whether the caller holds "ncbi_gene:672" or "672". Relation roles
+    carry no database of their own, and must resolve to the same entity row the
+    annotations created.
+    """
+    databases: dict[str, str] = {}
+    for passage in paper.passages:
+        for annotation in passage.annotations:
+            raw = (annotation.identifier or "").strip()
+            if raw and annotation.database:
+                databases[raw] = annotation.database
+                databases[raw.split(":", 1)[-1]] = annotation.database
+    return databases
+
+
 def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     """Ensure an `entities` row per grounded concept; return identifier -> id.
 
@@ -348,15 +372,30 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     validated here rather than trusted from the parser. `normalise_identifier`
     is the same rule as the table's CHECK constraint — application-side so a
     malformed id is dropped with a warning, database-side so it cannot land at
-    all if this is ever bypassed.
+    all if this is ever bypassed. It also qualifies a bare id with its source
+    database, since "672" is unique only within NCBI Gene.
+
+    Relations name concepts too, but a relation role carries no `database` --
+    only an id, a name and a type. Unqualified, a relation-only concept would
+    become a second row for something the annotations already stored as
+    `ncbi_gene:672`. So the paper's annotations are read first into a lookup,
+    with a type fallback for the two kinds that ever arrive bare.
     """
     wanted: dict[str, dict] = {}
     skipped = 0
+    unqualified = 0
+
+    databases = concept_databases(paper)
 
     def remember(raw: object, name: Optional[str], kind: Optional[str], database=None) -> bool:
-        identifier = normalise_identifier(raw)
+        nonlocal unqualified
+        text = str(raw).strip() if raw is not None else ""
+        source = database or databases.get(text) or TYPE_DATABASES.get(kind or "")
+        identifier = normalise_identifier(raw, source)
         if identifier is None:
             return False
+        if ":" not in identifier:
+            unqualified += 1
         wanted.setdefault(
             identifier,
             {
@@ -390,6 +429,14 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
         log.warning(
             "dropped %d concept(s) with an unusable identifier for PMID %s",
             skipped,
+            paper.pmid,
+        )
+    if unqualified:
+        # Kept, not dropped: a bare id is still a concept, just one whose
+        # source database upstream did not name.
+        log.warning(
+            "stored %d concept(s) unqualified for PMID %s -- no source database",
+            unqualified,
             paper.pmid,
         )
 
@@ -454,7 +501,7 @@ def replace_mentions(
     rows: dict[tuple, dict] = {}
     for passage in paper.passages:
         for annotation in passage.annotations:
-            identifier = normalise_identifier(annotation.identifier)
+            identifier = normalise_identifier(annotation.identifier, annotation.database)
             if not annotation.grounded or identifier is None:
                 continue
             entity_id = entity_ids.get(identifier)
@@ -484,10 +531,20 @@ def replace_relations(
 ) -> int:
     session.execute(delete(PaperRelation).where(PaperRelation.paper_id == paper_id))
 
+    databases = concept_databases(paper)
+
+    def resolve(identifier: Optional[str], kind: Optional[str]) -> Optional[int]:
+        """The entity id for a relation role, qualified the same way the
+        entities themselves were — otherwise a gene relation would look up
+        "672" against a table keyed "ncbi_gene:672" and silently vanish."""
+        text = (identifier or "").strip()
+        source = databases.get(text) or TYPE_DATABASES.get(kind or "")
+        return entity_ids.get(normalise_identifier(identifier, source) or "")
+
     rows: dict[tuple, dict] = {}
     for relation in paper.relations:
-        subject = entity_ids.get(normalise_identifier(relation.role1_identifier) or "")
-        obj = entity_ids.get(normalise_identifier(relation.role2_identifier) or "")
+        subject = resolve(relation.role1_identifier, relation.role1_type)
+        obj = resolve(relation.role2_identifier, relation.role2_type)
         if subject is None or obj is None or not relation.type:
             continue
         rows.setdefault(

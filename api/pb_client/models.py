@@ -8,29 +8,52 @@ from pydantic import BaseModel, Field
 
 #: A usable NCBI concept id, in the only two shapes upstream produces.
 #:
-#:   672, 9606                bare number -- NCBI Gene and NCBI Taxonomy
 #:   MESH:D065627, CVCL:M023  prefixed -- MeSH, Cellosaurus, OMIM, ...
+#:   ncbi_gene:672            qualified by us; the prefix takes underscores
+#:   672, 9606                bare -- only when the source database is unknown
 #:
 #: Note the suffix is alphanumeric, not numeric: MeSH ids are a letter and
 #: digits, and they are 83% of this corpus. A `PREFIX:number` rule would reject
 #: almost every real identifier.
-IDENTIFIER_RE = re.compile(r"^(?:[0-9]+|[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9._-]+)$")
+IDENTIFIER_RE = re.compile(r"^(?:[0-9]+|[A-Za-z][A-Za-z0-9_]*:[A-Za-z0-9._-]+)$")
+
+#: A usable database prefix, matching the left side of IDENTIFIER_RE. Upstream
+#: supplies "ncbi_gene", "ncbi_taxonomy", "ncbi_mesh", "cvcl", "omim".
+PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
-def normalise_identifier(value: object) -> Optional[str]:
-    """The identifier, trimmed — or None when it is not one.
+def normalise_identifier(value: object, database: object = None) -> Optional[str]:
+    """The canonical identifier, or None when there is not one.
 
     None covers every way upstream declines to ground a mention: absent, the
     literal "-", empty, whitespace-only, or a shape we do not recognise.
     Callers treat None as ungrounded and drop the concept, which is what keeps
     `entities.identifier` matching its CHECK constraint.
+
+    A colon-less id is qualified with its source database — "672" becomes
+    "ncbi_gene:672" — because a bare number is only unique *within* one NCBI
+    database. Gene 9606 and taxon 9606 are different concepts that would
+    otherwise share a row, and `entities.identifier` is unique. PubTator sends
+    the database alongside the id, so the prefix is read, not guessed.
+
+    Idempotent: an id that already has a colon is returned untouched, so
+    re-running this over stored values cannot produce "ncbi_gene:ncbi_gene:672".
     """
     if value is None:
         return None
     text = str(value).strip()
     if not text or text == "-":
         return None
-    return text if IDENTIFIER_RE.match(text) else None
+    if not IDENTIFIER_RE.match(text):
+        return None
+    if ":" in text:
+        return text
+    prefix = None if database is None else str(database).strip()
+    if not prefix or not PREFIX_RE.match(prefix):
+        # Unqualifiable: keep the bare id rather than drop the concept or
+        # invent a prefix. Rare, and the caller logs it.
+        return text
+    return f"{prefix}:{text}"
 
 class SearchResult(BaseModel):
     pmid: Optional[int] = None
