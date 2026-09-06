@@ -342,6 +342,12 @@ def replace_references(session: Session, paper_id: int, paper: PaperResponse) ->
 #: did, so there is nothing to read the database from.
 TYPE_DATABASES = {"Gene": "ncbi_gene", "Species": "ncbi_taxonomy"}
 
+#: An id that carries a namespace states its own provenance, so the prefix is a
+#: valid last resort when no annotation supplied `database`. Values are the ones
+#: upstream itself uses, so a concept resolved this way is indistinguishable
+#: from one resolved from the annotation.
+PREFIX_DATABASES = {"MESH": "ncbi_mesh", "CVCL": "cvcl", "OMIM": "omim"}
+
 
 def concept_databases(paper: PaperResponse) -> dict[str, str]:
     """identifier -> source database, from this paper's annotations.
@@ -358,7 +364,32 @@ def concept_databases(paper: PaperResponse) -> dict[str, str]:
             if raw and annotation.database:
                 databases[raw] = annotation.database
                 databases[raw.split(":", 1)[-1]] = annotation.database
+                if ":" in raw:
+                    # Also by namespace, so a relation-only "MESH:D999" that no
+                    # annotation named still resolves from a sibling MeSH id.
+                    databases.setdefault(raw.split(":", 1)[0], annotation.database)
     return databases
+
+
+def source_database(
+    identifier: str, kind: Optional[str], databases: dict[str, str], explicit: object = None
+) -> Optional[str]:
+    """Where this concept came from, or None if that cannot be established.
+
+    In order: what upstream said outright, what a sibling annotation in the
+    same paper said about this id or its namespace, the type (Gene and Species
+    are the only kinds whose ids arrive bare), and finally the namespace the id
+    carries. None means the concept is rejected — see `upsert_entities`.
+    """
+    if explicit:
+        return str(explicit).strip() or None
+    prefix = identifier.split(":", 1)[0] if ":" in identifier else ""
+    return (
+        databases.get(identifier)
+        or (databases.get(prefix) if prefix else None)
+        or TYPE_DATABASES.get(kind or "")
+        or (PREFIX_DATABASES.get(prefix.upper()) if prefix else None)
+    )
 
 
 def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
@@ -378,24 +409,30 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     Relations name concepts too, but a relation role carries no `database` --
     only an id, a name and a type. Unqualified, a relation-only concept would
     become a second row for something the annotations already stored as
-    `ncbi_gene:672`. So the paper's annotations are read first into a lookup,
-    with a type fallback for the two kinds that ever arrive bare.
+    `ncbi_gene:672`. So the paper's annotations are read first into a lookup.
+
+    A concept whose source database cannot be established is **rejected**: an
+    entity with no provenance is not worth storing, and `entities.database` is
+    NOT NULL. Rejection is per concept, never per paper -- the paper, its
+    chunks and its other entities are imported regardless, and the count is
+    logged.
     """
     wanted: dict[str, dict] = {}
     skipped = 0
-    unqualified = 0
+    no_provenance = 0
 
     databases = concept_databases(paper)
 
     def remember(raw: object, name: Optional[str], kind: Optional[str], database=None) -> bool:
-        nonlocal unqualified
+        nonlocal no_provenance
         text = str(raw).strip() if raw is not None else ""
-        source = database or databases.get(text) or TYPE_DATABASES.get(kind or "")
+        source = source_database(text, kind, databases, database)
+        if source is None:
+            no_provenance += 1
+            return True  # counted here, not as a malformed identifier
         identifier = normalise_identifier(raw, source)
         if identifier is None:
             return False
-        if ":" not in identifier:
-            unqualified += 1
         wanted.setdefault(
             identifier,
             {
@@ -403,7 +440,7 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
                 # A blank type is as useless as a blank id, and arrived the
                 # same way: entity 49 had entity_type " " alongside its " " id.
                 "entity_type": (kind or "").strip() or "Unknown",
-                "database": database,
+                "database": source,
                 "name": name,
             },
         )
@@ -431,12 +468,11 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
             skipped,
             paper.pmid,
         )
-    if unqualified:
-        # Kept, not dropped: a bare id is still a concept, just one whose
-        # source database upstream did not name.
+    if no_provenance:
         log.warning(
-            "stored %d concept(s) unqualified for PMID %s -- no source database",
-            unqualified,
+            "rejected %d concept(s) with no source database for PMID %s "
+            "-- the paper is imported without them",
+            no_provenance,
             paper.pmid,
         )
 
@@ -538,7 +574,9 @@ def replace_relations(
         entities themselves were — otherwise a gene relation would look up
         "672" against a table keyed "ncbi_gene:672" and silently vanish."""
         text = (identifier or "").strip()
-        source = databases.get(text) or TYPE_DATABASES.get(kind or "")
+        source = source_database(text, kind, databases)
+        if source is None:
+            return None
         return entity_ids.get(normalise_identifier(identifier, source) or "")
 
     rows: dict[tuple, dict] = {}

@@ -42,9 +42,14 @@ rather than numeric, MeSH ids being a letter and digits.
 Ids are stored namespaced. `MESH:D065627` already is; a bare id is **qualified
 with its source database** — `672` becomes `ncbi_gene:672` — because a bare
 number is unique only within one NCBI database, and gene 9606 and taxon 9606
-would otherwise collide on one row. `pb_client.models.normalise_identifier`
-applies the same rule at ingest, dropping a bad id with a warning rather than
-failing the import.
+would otherwise collide on one row.
+
+`entities.database` is therefore NOT NULL: without it we cannot say what an
+identifier means, or qualify a bare one. A concept whose provenance cannot be
+established is **rejected individually** — the paper, its chunks and its other
+entities still import, and the count is logged. Provenance is taken from what
+upstream sent, from a sibling annotation in the same paper, from the entity
+type, or from the namespace the id already carries.
 
 ## Subdirectories
 

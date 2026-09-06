@@ -197,7 +197,9 @@ class Entity(Base):
     identifier: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     #: Gene | Disease | Chemical | Species | CellLine | Variant | Chromosome
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    database: Mapped[Optional[str]] = mapped_column(String(64))
+    #: NOT NULL: an entity whose provenance we cannot establish is not worth
+    #: storing. Rejected at ingest per concept, so the paper still imports.
+    database: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(Text)
 
     #: The two shapes NCBI actually produces. Kept in sync with
@@ -211,10 +213,18 @@ class Entity(Base):
     #: number stays legal for the case where that database is unknown.
     IDENTIFIER_SQL_RE = r"^([0-9]+|[A-Za-z][A-Za-z0-9_]*:[A-Za-z0-9._\-]+)$"
 
+    #: Same shape as an identifier prefix — a database name that cannot be one
+    #: could not have qualified a bare id anyway.
+    DATABASE_SQL_RE = r"^[A-Za-z][A-Za-z0-9_]*$"
+
     __table_args__ = (
         CheckConstraint(
             f"identifier ~ '{IDENTIFIER_SQL_RE}'",
             name="ck_entities_identifier_format",
+        ),
+        CheckConstraint(
+            f"database ~ '{DATABASE_SQL_RE}'",
+            name="ck_entities_database_format",
         ),
         Index("ix_entities_entity_type", "entity_type"),
         Index("ix_entities_name", "name"),
