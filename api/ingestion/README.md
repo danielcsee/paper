@@ -39,6 +39,18 @@ which would defeat the fingerprint skip and re-fetch a paper we hold.
 beside the raw rows, so "which stage is last" stays a backend fact. Failure is
 checked first, so a late failure is an error, not a success.
 
+## Concurrency
+
+Writes into `entities` are ordered by identifier, and mentions and relations by
+the entity they reference. Postgres takes index-tuple and FK locks in insertion
+order, so two workers importing papers that share a concept in different orders
+deadlock. Annotation order was that arbitrary order: across 29 stored papers it
+produced 2,267 inverted lock-order pairs, and zero once sorted.
+
+A rollback in Postgres class 40 (deadlock, serialization failure) leaves the
+stage `pending` and retries rather than failing the paper -- it is a lost race,
+not a bad import, and the client sees it as still queued.
+
 ## Dependencies
 
 `celery` + Redis, `sentence-transformers`, `api.pb_client`, `api.ncbi`,

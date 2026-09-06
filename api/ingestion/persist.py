@@ -479,11 +479,17 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     if not wanted:
         return {}
 
+    # Sorted by identifier, which is the conflict target. Postgres takes index
+    # tuple locks in insertion order, so two transactions inserting the same
+    # concepts in different orders deadlock -- and the order here was annotation
+    # order, which differs per paper. Measured before the fix: papers 83 and 84
+    # shared 24 inverted pairs. A total order makes a cycle impossible.
+    #
     # DO UPDATE rather than DO NOTHING: RETURNING only yields rows the statement
     # actually touched, and a no-op conflict would silently drop existing ids.
     rows = session.execute(
         insert(Entity)
-        .values(list(wanted.values()))
+        .values([wanted[identifier] for identifier in sorted(wanted)])
         .on_conflict_do_update(
             index_elements=["identifier"], set_={"name": insert(Entity).excluded.name}
         )
@@ -558,7 +564,12 @@ def replace_mentions(
                 },
             )
     if rows:
-        session.execute(insert(PaperEntityMention), list(rows.values()))
+        # Ordered by the entity they reference: inserting a mention takes a
+        # KEY SHARE lock on that entity row, so an arbitrary order is the same
+        # deadlock risk as the entity insert itself.
+        session.execute(
+            insert(PaperEntityMention), [rows[key] for key in sorted(rows)]
+        )
     return len(rows)
 
 
@@ -596,7 +607,8 @@ def replace_relations(
             },
         )
     if rows:
-        session.execute(insert(PaperRelation), list(rows.values()))
+        # Same reason as the mentions above: these carry FKs to `entities`.
+        session.execute(insert(PaperRelation), [rows[key] for key in sorted(rows)])
     return len(rows)
 
 

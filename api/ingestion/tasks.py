@@ -39,6 +39,18 @@ log = logging.getLogger(__name__)
 #: Bumped when the ingest mapping changes in a way that should re-run the stage.
 INGEST_VERSION = "1"
 
+#: Postgres class 40 — serialization_failure and deadlock_detected. The
+#: transaction was rolled back for a reason that is not this paper's fault and
+#: will usually not recur, so the victim should try again rather than die.
+#: `persist` sorts its inserts to make deadlocks unlikely; this handles the
+#: residue, and anything else two concurrent writers can still collide on.
+TRANSIENT_SQLSTATES = frozenset({"40001", "40P01"})
+
+
+def is_transient_conflict(exc: BaseException) -> bool:
+    """True for a rollback that retrying can fix."""
+    return getattr(getattr(exc, "orig", None), "sqlstate", None) in TRANSIENT_SQLSTATES
+
 
 async def _fetch(pmid: int) -> tuple[PaperResponse, dict]:
     """Fetch one paper, returning (normalised dict, raw upstream document).
@@ -155,8 +167,25 @@ def ingest_paper(self, pmid: int, force: bool = False) -> int:
         asyncio.run(_forget(pmid))
         _name_new_entities(paper_id, pmid)
     except Exception as exc:
+        # A deadlock is not a failed import, it is a lost race. Leave the row
+        # pending -- which reads as "queued" to the client -- so a retry is not
+        # reported to the user as an error it is not.
+        retryable = is_transient_conflict(exc) and self.request.retries < self.max_retries
         with session_scope() as session:
-            persist.mark_stage(session, paper_id, "ingest", "failed", error=str(exc)[:500])
+            persist.mark_stage(
+                session,
+                paper_id,
+                "ingest",
+                "pending" if retryable else "failed",
+                error=str(exc)[:500],
+            )
+        if retryable:
+            log.warning(
+                "ingest for PMID %s hit a transient conflict, retrying: %s",
+                pmid,
+                str(exc)[:200],
+            )
+            raise self.retry(exc=exc, countdown=5) from exc
         raise
 
     log.info("ingested PMID %s as paper %s (%d chunks)", pmid, paper_id, chunk_count)
