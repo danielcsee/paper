@@ -98,8 +98,11 @@ def apply_names(session: Session, names: dict[int, str]) -> int:
     # SQLAlchemy 2.0's bulk UPDATE by primary key: one statement, the rows
     # carry their own `id`. Writing the WHERE by hand instead makes the ORM
     # treat it as a criteria update and refuse to reconcile loaded objects.
+    # Sorted by primary key so concurrent backfills lock rows in one order.
+    # An UPDATE here contends with the ON CONFLICT DO UPDATE in
+    # `persist.upsert_entities`, which sorts for the same reason.
     session.execute(
         update(Entity),
-        [{"id": entity_id, "name": name} for entity_id, name in names.items()],
+        [{"id": entity_id, "name": names[entity_id]} for entity_id in sorted(names)],
     )
     return len(names)

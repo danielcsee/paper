@@ -5,6 +5,7 @@
 #   ./scripts/stop.sh --apps-only  leave Postgres/Neo4j/Redis running
 #   ./scripts/stop.sh --quiet      say less
 #   ./scripts/stop.sh --dry-run    list what would be stopped, kill nothing
+#   ./scripts/stop.sh --list       print the PIDs and exit; stop nothing
 #
 # Finds processes by what they are, not by who started them, so a server
 # launched by hand outside dev.sh is stopped too. That matters: two uvicorns can
@@ -18,12 +19,14 @@ cd "$ROOT"
 APPS_ONLY=0
 QUIET=0
 DRY=0
+LIST=0
 for arg in "$@"; do
   case "$arg" in
     --apps-only) APPS_ONLY=1 ;;
     --quiet|-q)  QUIET=1 ;;
     --dry-run)   DRY=1 ;;
-    -h|--help)   sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --list)      LIST=1 ;;
+    -h|--help)   sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -69,6 +72,13 @@ find_pids() {
 }
 
 pids="$(find_pids)"
+
+# `--list` exists so dev.sh can ask "is this checkout already running?" without
+# duplicating the detection rules, which are the subtle part.
+if [ "$LIST" = 1 ]; then
+  [ -n "$pids" ] && echo "$pids"
+  exit 0
+fi
 
 if [ -z "$pids" ]; then
   log "no app processes running"

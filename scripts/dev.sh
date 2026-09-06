@@ -5,6 +5,7 @@
 #   ./scripts/dev.sh           hot-reloading dev servers (UI on :5173)
 #   ./scripts/dev.sh --prod    build the bundle and serve it from FastAPI (:8000)
 #   ./scripts/dev.sh --no-db   skip Docker; app processes only
+#   ./scripts/dev.sh --force   start even if this checkout is already running
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,10 +13,12 @@ cd "$ROOT"
 
 PROD=0
 START_DB=1
+FORCE=0
 for arg in "$@"; do
   case "$arg" in
     --prod)   PROD=1 ;;
     --no-db)  START_DB=0 ;;
+    --force)  FORCE=1 ;;
     -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -23,6 +26,21 @@ done
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Refuse to become the second copy. Two uvicorns can share :8000 with the
+# kernel quietly preferring the older one, and two Celery workers turn every
+# shared entity into a deadlock candidate -- both failures look like bugs in
+# the app rather than duplicate processes.
+if [ "$FORCE" = 0 ]; then
+  running="$("$(dirname "${BASH_SOURCE[0]}")/stop.sh" --list 2>/dev/null || true)"
+  if [ -n "$running" ]; then
+    printf '\033[1;31merror:\033[0m this checkout is already running:\n' >&2
+    for pid in $running; do
+      printf '  %s  %s\n' "$pid" "$(ps -o command= -p "$pid" 2>/dev/null | cut -c1-70)" >&2
+    done
+    die "stop it with ./scripts/stop.sh, or re-run with --force"
+  fi
+fi
 
 [ -f .env ] || { log "creating .env from .env.example"; cp .env.example .env; }
 set -a; . ./.env; set +a

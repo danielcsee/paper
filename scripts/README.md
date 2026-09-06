@@ -11,7 +11,14 @@ server and the React dev server on the host.
 ./scripts/dev.sh           # hot-reloading dev servers (UI on :5173)
 ./scripts/dev.sh --prod    # build the bundle and serve it from FastAPI (:8000)
 ./scripts/dev.sh --no-db   # skip Docker; app processes only
+./scripts/dev.sh --force   # start anyway, even if a copy is already running
 ```
+
+**It refuses to become a second copy.** It asks `stop.sh --list` whether this
+checkout is already running and stops if so. Duplicates do not announce
+themselves: two uvicorns share `:8000` with the kernel quietly preferring the
+older one, and two Celery workers turn every shared entity into a deadlock
+candidate. Both look like application bugs.
 
 It is idempotent and safe to re-run. In order it will:
 
