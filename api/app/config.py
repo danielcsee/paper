@@ -18,10 +18,15 @@ class Settings(BaseSettings):
     # Where the compiled React bundle lives. The Docker image overrides this.
     litgraph_ui_dist: Path = REPO_ROOT / "ui" / "dist"
 
-    # Datastore connections. Nothing connects to these yet; they are here so the
-    # image and the host process read their addresses from one place.
+    # Datastore connections, so the image and the host process read their
+    # addresses from one place.
     database_url: str = "postgresql://litgraph:litgraph@localhost:5432/litgraph"
     neo4j_uri: str = "bolt://localhost:7687"
+    #: The same "user/password" string the Neo4j container reads, so the server
+    #: and its clients cannot drift apart on credentials.
+    neo4j_auth: str = "neo4j/litgraph_dev_pw"
+    #: Community edition serves exactly one user database, named "neo4j".
+    neo4j_database: str = "neo4j"
 
     # --- NCBI ---
     pubtator_base_url: str = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
@@ -79,6 +84,13 @@ class Settings(BaseSettings):
     #: which is "mps" on Apple silicon. Set to "cpu" when the worker must run
     #: in a forked process — Metal cannot be initialised after fork.
     embedding_device: Optional[str] = None
+
+
+    @property
+    def neo4j_credentials(self) -> tuple[str, str]:
+        """`neo4j_auth` split into the (user, password) pair the driver wants."""
+        user, _, password = self.neo4j_auth.partition("/")
+        return user, password
 
 
 @lru_cache
