@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ApiError,
   fetchPaper,
@@ -64,6 +64,11 @@ export default function PaperView({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<PaperEntity | null>(null)
+  // Where each mark sits in the document, as a fraction of scrollable height.
+  // Measured from the DOM rather than derived from offsets: only the rendered
+  // marks are navigable, and only layout knows how tall a paragraph became.
+  const [markFractions, setMarkFractions] = useState<number[]>([])
+  const [current, setCurrent] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Spans arrive in reading order for the whole paper; the renderer wants them
@@ -109,17 +114,60 @@ export default function PaperView({
     setSelected(null)
   }, [paperId])
 
-  // Take the reader to the first occurrence. With up to 634 mentions in a
-  // paper, a highlight somewhere below the fold is not much use.
+  const marksIn = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLElement>('.entity-mark'))
+
+  /** Scroll one occurrence into view and make it the current one. */
+  const goTo = useCallback((index: number) => {
+    const container = scrollRef.current
+    if (!container) return
+    const marks = marksIn(container)
+    if (marks.length === 0) return
+    // Wrap, the way find-next does: with 315 occurrences, stopping dead at
+    // the last one is more annoying than looping.
+    const wrapped = ((index % marks.length) + marks.length) % marks.length
+    marks[wrapped].scrollIntoView({ block: 'center' })
+    setCurrent(wrapped)
+  }, [])
+
+  /** Where every mark sits, as a fraction of the scrollable height. */
+  const measureMarks = useCallback(() => {
+    const container = scrollRef.current
+    if (!container) return
+    const containerTop = container.getBoundingClientRect().top
+    const height = container.scrollHeight || 1
+    setMarkFractions(
+      marksIn(container).map((mark) => {
+        const offset = mark.getBoundingClientRect().top - containerTop + container.scrollTop
+        return Math.min(1, Math.max(0, offset / height))
+      }),
+    )
+  }, [])
+
+  // Measure the marks, then take the reader to the first one.
   //
   // Instant, not smooth. The first mention can be 4,000px down, which is a long
   // disorienting slide rather than a helpful one — and `behavior: 'smooth'`
   // measured as a no-op here, so it would have silently done nothing at all.
+  useLayoutEffect(() => {
+    if (!selected) {
+      setMarkFractions([])
+      setCurrent(0)
+      return
+    }
+    measureMarks()
+    setCurrent(0)
+    scrollRef.current?.querySelector('.entity-mark')?.scrollIntoView({ block: 'center' })
+  }, [selected, measureMarks])
+
+  // Reflow moves every mark, so the ticks would otherwise point at where the
+  // text used to be.
   useEffect(() => {
     if (!selected) return
-    const first = scrollRef.current?.querySelector('.entity-mark')
-    first?.scrollIntoView({ block: 'center' })
-  }, [selected])
+    const onResize = () => measureMarks()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [selected, measureMarks])
 
   // Escape clears the highlight, the usual way out of a mode.
   useEffect(() => {
@@ -171,8 +219,19 @@ export default function PaperView({
         paperId={paper.paper_id}
         selectedId={selected?.entity_id ?? null}
         onSelect={setSelected}
+        nav={
+          selected
+            ? {
+                current: markFractions.length === 0 ? 0 : current + 1,
+                total: markFractions.length,
+                onPrevious: () => goTo(current - 1),
+                onNext: () => goTo(current + 1),
+              }
+            : null
+        }
       />
-      <div className="paper-scroll" ref={scrollRef}>
+      <div className="paper-reader">
+        <div className="paper-scroll" ref={scrollRef}>
         <article className="paper-doc">
           <header className="paper-doc-header">
             <h1 className="paper-doc-title">{paper.title ?? 'Untitled'}</h1>
@@ -262,6 +321,22 @@ export default function PaperView({
             </section>
           )}
         </article>
+        </div>
+        {markFractions.length > 0 && (
+          // A minimap of the scrollbar: one tick per occurrence, so the reader
+          // can see how far the next one is before scrolling for it.
+          <div className="paper-scrollmap" aria-hidden="true">
+            {markFractions.map((fraction, index) => (
+              <span
+                key={index}
+                className={`scrollmap-tick${
+                  index === current ? ' scrollmap-tick-current' : ''
+                }`}
+                style={{ top: `${fraction * 100}%` }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )
