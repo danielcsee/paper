@@ -71,7 +71,26 @@ export function pathToView(path: string): View {
 // Open tabs survive a reload. The active view does not need storing: the URL
 // already carries it, and it stays the authority so a shared link still wins.
 
-const STORAGE_KEY = 'litgraph.openTabs.v1'
+const STORAGE_KEY = 'sciterm.openTabs.v1'
+
+/**
+ * The key this replaced, when the app was called litgraph.
+ *
+ * Renaming the key silently orphans whatever was under the old one — the tabs
+ * are not read again, but the entry sits in every existing browser forever.
+ * Removing it costs one call on load and leaves nothing behind. Dropping the
+ * tabs themselves is the accepted price of the rename; they are a convenience,
+ * and the URL still carries the active view.
+ */
+const LEGACY_STORAGE_KEY = 'litgraph.openTabs.v1'
+
+function forgetLegacyTabs(): void {
+  try {
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY)
+  } catch {
+    /* localStorage throws outright in private windows; nothing to clean up */
+  }
+}
 
 /** Enough for any real session, and a bound on what a corrupt write can grow to. */
 const MAX_STORED_TABS = 50
@@ -97,6 +116,7 @@ function isPaperTab(value: unknown): value is PaperTab {
  * the app from starting.
  */
 export function loadTabs(): PaperTab[] {
+  forgetLegacyTabs()
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return []

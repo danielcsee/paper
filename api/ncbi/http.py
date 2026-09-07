@@ -22,7 +22,7 @@ from api.redis_conn import get_client
 log = logging.getLogger(__name__)
 
 #: NCBI asks that clients identify themselves and stay under ~3 requests/second.
-USER_AGENT = "litgraph/0.1 (https://github.com/; research prototype)"
+USER_AGENT = "sciterm/0.1 (https://github.com/; research prototype)"
 
 #: Requests per second allowed against NCBI. A property of their service, not of
 #: our deployment, so it is a constant here rather than a setting.

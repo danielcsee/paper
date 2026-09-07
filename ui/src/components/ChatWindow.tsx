@@ -82,7 +82,7 @@ export default function ChatWindow({ messages, onSend, onOpenPaper }: Props) {
             {messages.map((message) => (
               <li key={message.id} className={`message message-${message.role}`}>
                 <div className="message-role">
-                  {message.role === 'user' ? 'You' : 'litgraph'}
+                  {message.role === 'user' ? 'You' : 'sciterm'}
                 </div>
                 <div className="message-body">
                   {message.status === 'pending' ? (

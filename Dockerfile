@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r api/requirements.txt
 
 COPY api/ ./api/
 COPY --from=ui-build /ui/dist ./ui/dist
-ENV LITGRAPH_UI_DIST=/app/ui/dist
+ENV SCITERM_UI_DIST=/app/ui/dist
 
 EXPOSE 8000
 CMD ["uvicorn", "api.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
