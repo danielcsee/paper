@@ -41,6 +41,12 @@ checked first, so a late failure is an error, not a success.
 
 ## Concurrency
 
+Entities are inserted with `ON CONFLICT DO NOTHING` and read back with a
+`SELECT`, rather than `DO UPDATE`. An update rewrote `name` on every existing
+row — the same value for MeSH and Gene, and the bare identifier for Species,
+which then had to be resolved again — and took an exclusive lock on rows like
+`ncbi_taxonomy:9606`, which 26 of 30 papers touch.
+
 Writes into `entities` are ordered by identifier, and mentions and relations by
 the entity they reference. Postgres takes index-tuple and FK locks in insertion
 order, so two workers importing papers that share a concept in different orders

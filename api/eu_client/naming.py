@@ -14,24 +14,73 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from api.app.config import get_settings
-from api.db.models import Entity, PaperEntityMention
+from api.db.models import Entity
 from api.eu_client.eutils import RESOLVABLE, EutilsClient
 from api.ncbi import http as ncbi_http
 
 log = logging.getLogger(__name__)
 
 
-def unnamed_entities(session: Session, paper_id: Optional[int] = None) -> list[Entity]:
+def already_named(session: Session, identifiers: Sequence[str]) -> set[str]:
+    """Which of these identifiers already carry a real name.
+
+    The step that keeps this cheap: of 116 concepts across the stored corpus,
+    113 were already named, so only 3 ever reached E-utilities.
+    """
+    if not identifiers:
+        return set()
+    rows = session.execute(
+        select(Entity.identifier).where(
+            Entity.identifier.in_(tuple(identifiers)),
+            Entity.name.is_not(None),
+            Entity.name != func.split_part(Entity.identifier, ":", 2),
+        )
+    ).scalars().all()
+    return set(rows)
+
+
+async def resolve_identifiers(concepts: dict[str, str]) -> dict[str, str]:
+    """identifier -> name, for the ids NCBI can name. One request per database.
+
+    Builds its own HTTP client and holds no transaction: this runs between the
+    fetch and the write, and a rate-limited network call inside a transaction is
+    how short locks become long ones.
+    """
+    by_database: dict[str, dict[str, str]] = {}
+    for identifier, database in concepts.items():
+        eutils_db = RESOLVABLE.get(database)
+        if eutils_db is None:
+            continue
+        by_database.setdefault(eutils_db, {})[identifier.split(":", 1)[-1]] = identifier
+    if not by_database:
+        return {}
+
+    settings = get_settings()
+    resolved: dict[str, str] = {}
+    async with ncbi_http.build_client(
+        timeout=settings.http_timeout_seconds,
+        contact_email=settings.ncbi_contact_email,
+        limiter=ncbi_http.RedisRateLimiter(
+            settings.rate_limit_redis_url, settings.ncbi_rate_limit_per_second
+        ),
+    ) as client:
+        eutils = EutilsClient(client, settings.eutils_base_url)
+        for eutils_db, uids in by_database.items():
+            for uid, concept in (await eutils.names(eutils_db, list(uids))).items():
+                identifier = uids.get(uid)
+                if identifier is not None:
+                    resolved[identifier] = concept.name
+    return resolved
+
+
+def unnamed_entities(session: Session) -> list[Entity]:
     """Entities whose `name` is just the identifier's local part.
 
     That is exactly the shape PubTator produces when it has no label — Species
     come through named "9606" — so it is also the test for "needs a name".
-    Restricted to databases E-utilities can actually resolve.
-
-    `paper_id` narrows it to concepts that paper mentions, which is what the
-    ingest task wants: unscoped, every import would re-ask about the same
-    permanently unresolvable ids. Three taxa in this corpus are `status:
-    merged` at NCBI and return empty names forever.
+    Restricted to databases E-utilities can actually resolve. Used by the
+    backfill, which repairs whatever is already stored; ingest resolves from the
+    paper in memory instead, before anything is written.
     """
     # Built from constructs, not a text() fragment: a raw "A OR B" splices in
     # unparenthesised and binds looser than the AND beside it, which quietly
@@ -43,52 +92,18 @@ def unnamed_entities(session: Session, paper_id: Optional[int] = None) -> list[E
             Entity.name == func.split_part(Entity.identifier, ":", 2),
         ),
     )
-    if paper_id is not None:
-        statement = statement.where(
-            Entity.id.in_(
-                select(PaperEntityMention.entity_id).where(
-                    PaperEntityMention.paper_id == paper_id
-                )
-            )
-        )
     return list(session.execute(statement).scalars().all())
 
 
 async def resolve_names(entities: Sequence[Entity]) -> dict[int, str]:
-    """entity id -> name, for those NCBI could name. One request per database.
-
-    Builds its own HTTP client: this runs from a Celery task and from a
-    command-line backfill, neither of which has one to hand. The rate limiter
-    is the shared Redis one, so these calls draw on the same NCBI budget as
-    everything else.
-    """
-    by_database: dict[str, dict[str, int]] = {}
-    for entity in entities:
-        eutils_db = RESOLVABLE.get(entity.database)
-        if eutils_db is None:
-            continue
-        uid = entity.identifier.split(":", 1)[-1]
-        by_database.setdefault(eutils_db, {})[uid] = entity.id
-    if not by_database:
-        return {}
-
-    settings = get_settings()
-    resolved: dict[int, str] = {}
-    async with ncbi_http.build_client(
-        timeout=settings.http_timeout_seconds,
-        contact_email=settings.ncbi_contact_email,
-        limiter=ncbi_http.RedisRateLimiter(
-            settings.rate_limit_redis_url, settings.ncbi_rate_limit_per_second
-        ),
-    ) as client:
-        eutils = EutilsClient(client, settings.eutils_base_url)
-        for eutils_db, uids in by_database.items():
-            names = await eutils.names(eutils_db, list(uids))
-            for uid, concept in names.items():
-                entity_id = uids.get(uid)
-                if entity_id is not None:
-                    resolved[entity_id] = concept.name
-    return resolved
+    """entity id -> name, for stored rows. The backfill's view of the same job."""
+    by_identifier = {entity.identifier: entity.database for entity in entities}
+    names = await resolve_identifiers(by_identifier)
+    return {
+        entity.id: names[entity.identifier]
+        for entity in entities
+        if entity.identifier in names
+    }
 
 
 def apply_names(session: Session, names: dict[int, str]) -> int:

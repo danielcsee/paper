@@ -92,28 +92,34 @@ async def _fetch(pmid: int) -> tuple[PaperResponse, dict]:
     return paper, raw
 
 
-def _name_new_entities(paper_id: int, pmid: int) -> None:
-    """Give names to any concept this paper introduced without one.
+def _resolve_names(paper: PaperResponse) -> dict[str, str]:
+    """Names for the concepts PubTator left as bare identifiers.
 
-    PubTator names Species and CellLines with their own identifier, so without
-    this a new taxon reads as "9685". E-utilities resolves the NCBI ones.
+    Runs between the fetch and the write, on the paper in memory, so the names
+    go in with the insert. Two reasons that matters: nothing then has to
+    overwrite `name` on rows every other paper also touches, and a lookup that
+    fails leaves the identifier standing rather than a value someone has to
+    correct later.
 
-    Deliberately after the stage is marked done, and deliberately swallowing
-    its errors: a missing label is cosmetic, and must never fail — or retry —
-    an import whose data is already stored. Scoped to this paper's own
-    concepts, so a paper that introduces none makes no request at all.
+    Fail-open and outside any transaction. A missing label is cosmetic, and the
+    backfill repairs whatever this could not reach.
     """
+    concepts = persist.unnamed_concepts(paper)
+    if not concepts:
+        return {}
     try:
         with session_scope() as session:
-            pending = naming.unnamed_entities(session, paper_id)
-            if not pending:
-                return
-            names = asyncio.run(naming.resolve_names(pending))
-            written = naming.apply_names(session, names)
-        if written:
-            log.info("named %d entity/entities after ingesting PMID %s", written, pmid)
+            known = naming.already_named(session, list(concepts))
+        pending = {i: db for i, db in concepts.items() if i not in known}
+        if not pending:
+            return {}
+        names = asyncio.run(naming.resolve_identifiers(pending))
+        if names:
+            log.info("resolved %d name(s) for PMID %s", len(names), paper.pmid)
+        return names
     except Exception:
-        log.warning("could not name new entities after PMID %s", pmid, exc_info=True)
+        log.warning("could not resolve names for PMID %s", paper.pmid, exc_info=True)
+        return {}
 
 
 async def _forget(pmid: int) -> None:
@@ -156,16 +162,18 @@ def ingest_paper(self, pmid: int, force: bool = False) -> int:
         log.exception("ingest fetch failed for PMID %s", pmid)
         raise self.retry(exc=exc, countdown=30) from exc
 
+    # Before the transaction opens, so no lock is held across a network call.
+    names = _resolve_names(paper)
+
     try:
         with session_scope() as session:
-            _, chunk_count = persist.persist_paper(session, paper, raw)
+            _, chunk_count = persist.persist_paper(session, paper, raw, names)
             persist.mark_stage(
                 session, paper_id, "ingest", "done", fingerprint=INGEST_VERSION
             )
         # Postgres owns the document now, so holding a 24h copy in a capped
         # cache would spend the budget on the one paper that no longer needs it.
         asyncio.run(_forget(pmid))
-        _name_new_entities(paper_id, pmid)
     except Exception as exc:
         # A deadlock is not a failed import, it is a lost race. Leave the row
         # pending -- which reads as "queued" to the client -- so a retry is not
