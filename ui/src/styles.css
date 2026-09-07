@@ -726,11 +726,17 @@ body {
 
 .paper-doc-heading { margin: 20px 0 6px; font-size: 15.5px; font-weight: 620; }
 
+/* Ragged right, not justified. PubTator leaves reference markers glued to the
+   words they follow — "hyperaldosteronism,11" — and the browser cannot
+   hyphenate a token like that, so justification pays for the long unbreakable
+   word by stretching the spaces before it. Measured on paper 122 at the full
+   720px measure: one space rendered 26.5px against a normal 5.7px, which reads
+   as a tab rather than a space. Hyphenation stays; it is what keeps the ragged
+   edge from being severe. */
 .paper-doc-para {
   margin: 0 0 13px;
   font-size: 15px;
   line-height: 1.72;
-  text-align: justify;
   hyphens: auto;
 }
 
