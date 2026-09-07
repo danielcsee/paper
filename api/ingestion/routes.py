@@ -80,7 +80,7 @@ def import_papers(request: ImportRequest) -> ImportResponse:
             # rather than only once its first task finishes.
             with session_scope() as session:
                 reserved_id = persist.reserve_paper(session, item.pmid)
-                persist.mark_queued(session, reserved_id, ("ingest", "embed"))
+                persist.mark_queued(session, reserved_id, ("ingest", "embed", "graph"))
             result = import_paper(item.pmid, force=request.force)
         except Exception as exc:  # broker unreachable, mainly
             log.exception("could not queue PMID %s", item.pmid)

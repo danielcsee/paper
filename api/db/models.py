@@ -359,8 +359,13 @@ class PaperStageRun(Base):
 
     #: Completing this stage is what "successfully imported" means. Lives here
     #: rather than in one package because ingestion writes it and corpus reads
-    #: it, and the two must not drift. Moves to 'graph' when that stage exists.
-    FINAL_STAGE = "embed"
+    #: it, and the two must not drift.
+    #:
+    #: "graph", not "embed": work built on the knowledge graph has to be able to
+    #: assume a paper in the corpus is in the graph. The cost is that a Neo4j
+    #: outage keeps newly imported papers out of search until it clears, even
+    #: though their text and vectors are already stored.
+    FINAL_STAGE = "graph"
 
     paper_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True

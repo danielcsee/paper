@@ -2,7 +2,10 @@
 
 One function per node or edge type, each a SQL read followed by a batched
 `UNWIND`. They are ordered by dependency and must be run in that order:
-`load_all` is the only caller that should exist.
+`load_all` projects the whole corpus; `load_paper` projects one, for the
+`graph` ingest stage. Both drive the same functions — a `pmid` argument narrows
+each read, so there is one Cypher statement per node and edge type rather than
+a bulk copy and a per-paper copy that drift apart.
 
 Every write is a `MERGE` on the node's identity key, so re-running is a no-op
 rather than a duplicate — the same property `persist_paper` already has on the
@@ -19,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import NamedTuple
+from typing import Any, NamedTuple, Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -42,38 +45,65 @@ class LoadCounts(NamedTuple):
     mentions: int
 
 
-def load_all(session: Session) -> LoadCounts:
-    """Project the whole corpus. Idempotent; safe to re-run."""
+def load_all(session: Session, pmid: Optional[int] = None) -> LoadCounts:
+    """Project the corpus, or one paper of it. Idempotent; safe to re-run.
+
+    The order is a dependency order, not a preference: edges `MATCH` their
+    endpoints, so every node they touch must exist first. A single paper needs
+    its own external reference stubs loaded before `CITES` can attach to them.
+    """
     counts = LoadCounts(
-        entities=load_entities(session),
-        papers=load_papers(session),
-        external_papers=load_external_papers(session),
-        authors=load_authors(session),
-        authored=load_authored(session),
-        cites=load_cites(session),
-        mentions=load_mentions(session),
+        entities=load_entities(session, pmid),
+        papers=load_papers(session, pmid),
+        external_papers=load_external_papers(session, pmid),
+        authors=load_authors(session, pmid),
+        authored=load_authored(session, pmid),
+        cites=load_cites(session, pmid),
+        mentions=load_mentions(session, pmid),
     )
-    log.info("graph load complete: %s", counts._asdict())
+    log.info("graph load complete (%s): %s",
+             f"pmid {pmid}" if pmid else "whole corpus", counts._asdict())
     return counts
+
+
+def load_paper(session: Session, pmid: int) -> LoadCounts:
+    """Project one paper and everything it touches. The `graph` ingest stage."""
+    return load_all(session, pmid)
+
+
+def _params(pmid: Optional[int]) -> dict[str, Any]:
+    """The filter bind. Every use is CAST — Postgres cannot infer the type of a
+    NULL parameter, and `WHERE :pmid IS NULL` is exactly that case."""
+    return {"pmid": pmid}
 
 
 # --------------------------------------------------------------------- nodes
 
 
-def load_entities(session: Session) -> int:
+def load_entities(session: Session, pmid: Optional[int] = None) -> int:
     """`(:Entity:<Type> {entity_id})`, one per `entities` row.
 
     Grouped by type because a label cannot be parameterised in Cypher — it is
     interpolated, so it is validated first by `entity_labels`.
+
+    Narrowed to the concepts one paper mentions when `pmid` is given. Entities
+    are shared, so this re-`MERGE`s ones other papers already created; that is
+    the point of merging on the key.
     """
     rows = session.execute(
         text(
             """
-            SELECT identifier, entity_type, database, name
-            FROM entities
-            ORDER BY identifier
+            SELECT e.identifier, e.entity_type, e.database, e.name
+            FROM entities e
+            WHERE CAST(:pmid AS bigint) IS NULL OR e.id IN (
+                SELECT m.entity_id FROM paper_entity_mentions m
+                JOIN papers p ON p.id = m.paper_id
+                WHERE p.pmid = CAST(:pmid AS bigint)
+            )
+            ORDER BY e.identifier
             """
-        )
+        ),
+        _params(pmid),
     ).mappings()
 
     by_label: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -106,7 +136,7 @@ def load_entities(session: Session) -> int:
     return total
 
 
-def load_papers(session: Session) -> int:
+def load_papers(session: Session, pmid: Optional[int] = None) -> int:
     """`(:Paper {pmid, in_corpus: true})` for every imported paper."""
     rows = [
         dict(row)
@@ -116,9 +146,11 @@ def load_papers(session: Session) -> int:
                 SELECT pmid, pmcid, doi, title, journal, journal_title,
                        pub_date, pub_year, volume, has_full_text
                 FROM papers
+                WHERE CAST(:pmid AS bigint) IS NULL OR pmid = :pmid
                 ORDER BY pmid
                 """
-            )
+            ),
+            _params(pmid),
         ).mappings()
     ]
     return run_batched(
@@ -140,7 +172,7 @@ def load_papers(session: Session) -> int:
     )
 
 
-def load_external_papers(session: Session) -> int:
+def load_external_papers(session: Session, pmid: Optional[int] = None) -> int:
     """Stub `(:Paper {in_corpus: false})` for cited works we do not hold.
 
     Without these the citation structure is almost empty — the corpus barely
@@ -164,10 +196,14 @@ def load_external_papers(session: Session) -> int:
                   AND NOT EXISTS (
                       SELECT 1 FROM papers p WHERE p.pmid = r.ref_pmid::bigint
                   )
+                  AND (CAST(:pmid AS bigint) IS NULL OR r.paper_id = (
+                      SELECT id FROM papers WHERE pmid = CAST(:pmid AS bigint)
+                  ))
                 GROUP BY r.ref_pmid::bigint
                 ORDER BY 1
                 """
-            )
+            ),
+            _params(pmid),
         ).mappings()
     ]
     return run_batched(
@@ -183,7 +219,7 @@ def load_external_papers(session: Session) -> int:
     )
 
 
-def load_authors(session: Session) -> int:
+def load_authors(session: Session, pmid: Optional[int] = None) -> int:
     """`(:Author {author_id})`, deduplicated by name across the corpus.
 
     Display names come from the lowest `(surname, given_names)` in sort order so
@@ -193,11 +229,14 @@ def load_authors(session: Session) -> int:
     rows = session.execute(
         text(
             """
-            SELECT DISTINCT surname, given_names
-            FROM paper_authors
-            ORDER BY surname, given_names
+            SELECT DISTINCT a.surname, a.given_names
+            FROM paper_authors a
+            JOIN papers p ON p.id = a.paper_id
+            WHERE CAST(:pmid AS bigint) IS NULL OR p.pmid = :pmid
+            ORDER BY a.surname, a.given_names
             """
-        )
+        ),
+        _params(pmid),
     ).mappings()
 
     by_key: dict[str, dict] = {}
@@ -228,7 +267,7 @@ def load_authors(session: Session) -> int:
 # --------------------------------------------------------------------- edges
 
 
-def load_authored(session: Session) -> int:
+def load_authored(session: Session, pmid: Optional[int] = None) -> int:
     """`(:Author)-[:AUTHORED {ordinal}]->(:Paper)`.
 
     `ordinal` is the author's position on that paper: first and last authorship
@@ -242,9 +281,11 @@ def load_authored(session: Session) -> int:
                 SELECT p.pmid, a.surname, a.given_names, a.ordinal
                 FROM paper_authors a
                 JOIN papers p ON p.id = a.paper_id
+                WHERE CAST(:pmid AS bigint) IS NULL OR p.pmid = CAST(:pmid AS bigint)
                 ORDER BY p.pmid, a.ordinal
                 """
-            )
+            ),
+            _params(pmid),
         ).mappings()
     ]
     edges = []
@@ -266,7 +307,7 @@ def load_authored(session: Session) -> int:
     )
 
 
-def load_cites(session: Session) -> int:
+def load_cites(session: Session, pmid: Optional[int] = None) -> int:
     """`(:Paper)-[:CITES]->(:Paper)`, for references that resolve to a PMID.
 
     Targets are mostly the external stubs from `load_external_papers`; only a
@@ -282,9 +323,11 @@ def load_cites(session: Session) -> int:
                 FROM paper_references r
                 JOIN papers p ON p.id = r.paper_id
                 WHERE r.ref_pmid ~ '^[0-9]+$'
+                  AND (CAST(:pmid AS bigint) IS NULL OR p.pmid = CAST(:pmid AS bigint))
                 ORDER BY 1, 2
                 """
-            )
+            ),
+            _params(pmid),
         ).mappings()
     ]
     return run_batched(
@@ -298,7 +341,7 @@ def load_cites(session: Session) -> int:
     )
 
 
-def load_mentions(session: Session) -> int:
+def load_mentions(session: Session, pmid: Optional[int] = None) -> int:
     """`(:Paper)-[:MENTIONS {mention_count, sections}]->(:Entity)`.
 
     An aggregation, not a row-per-row copy: thousands of mention spans collapse
@@ -328,10 +371,12 @@ def load_mentions(session: Session) -> int:
                 JOIN papers p   ON p.id = m.paper_id
                 JOIN entities e ON e.id = m.entity_id
                 LEFT JOIN paper_chunks c ON c.id = m.chunk_id
+                WHERE CAST(:pmid AS bigint) IS NULL OR p.pmid = CAST(:pmid AS bigint)
                 GROUP BY p.pmid, e.identifier, e.database
                 ORDER BY p.pmid, e.identifier
                 """
-            )
+            ),
+            _params(pmid),
         ).mappings()
     ]
     edges = [
