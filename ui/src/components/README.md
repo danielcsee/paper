@@ -35,6 +35,12 @@ corner icon opens one in the background.
 ## `PaperView.tsx`
 
 One paper laid out for reading, with `PaperEntities` as its left column.
+
+Paragraphs are ragged-right, not justified. PubTator leaves reference markers
+glued to the words they follow — "hyperaldosteronism,11" — and a browser cannot
+hyphenate a token like that, so justification paid for the long unbreakable word
+by stretching the spaces before it: 26.5px against a normal 5.7px on paper 122,
+which reads as a tab. Hyphenation stays.
 Headings come from `chunk_type`. The orange "view references" link opens that
 paper's references in the panel.
 
