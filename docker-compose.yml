@@ -4,7 +4,7 @@ services:
   postgres:
     # pgvector image so the extension is available when we add embeddings.
     image: pgvector/pgvector:pg17
-    container_name: litgraph-postgres
+    container_name: sciterm-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-litgraph}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litgraph}
@@ -21,7 +21,7 @@ services:
 
   neo4j:
     image: neo4j:5.26-community
-    container_name: litgraph-neo4j
+    container_name: sciterm-neo4j
     environment:
       NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/litgraph_dev_pw}
       # GDS supplies PageRank / personalized PageRank for the ranking layer.
@@ -43,7 +43,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: litgraph-redis
+    container_name: sciterm-redis
     # Celery's broker and result backend. Queue state is reconstructible from
     # paper_stage_runs, so persistence is deliberately off.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
@@ -57,7 +57,7 @@ services:
 
   redis-cache:
     image: redis:7-alpine
-    container_name: litgraph-redis-cache
+    container_name: sciterm-redis-cache
     # A SEPARATE instance from the broker above, on purpose. maxmemory and the
     # eviction policy are per-instance, not per-database, so a cache sharing the
     # broker's Redis could evict queued Celery tasks -- silently, since Celery's
@@ -81,7 +81,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: litgraph-api
+    container_name: sciterm-api
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-litgraph}:${POSTGRES_PASSWORD:-litgraph}@postgres:5432/${POSTGRES_DB:-litgraph}
       NEO4J_URI: bolt://neo4j:7687

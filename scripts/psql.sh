@@ -5,5 +5,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && source .env && set +a
 
-exec docker exec -it litgraph-postgres psql \
+exec docker exec -it sciterm-postgres psql \
   -U "${POSTGRES_USER:-litgraph}" -d "${POSTGRES_DB:-litgraph}"

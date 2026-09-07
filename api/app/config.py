@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     )
 
     # Where the compiled React bundle lives. The Docker image overrides this.
-    litgraph_ui_dist: Path = REPO_ROOT / "ui" / "dist"
+    sciterm_ui_dist: Path = REPO_ROOT / "ui" / "dist"
 
     # Datastore connections, so the image and the host process read their
     # addresses from one place.

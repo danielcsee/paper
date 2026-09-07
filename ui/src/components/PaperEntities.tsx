@@ -120,7 +120,7 @@ export default function PaperEntities({ paperId, selectedId, onSelect, nav }: Pr
           Entities{!loading && !error && entities.length > 0 && ` (${entities.length})`}
         </span>
         {nav && (
-          // Divided from the title the way the top bar divides litgraph from
+          // Divided from the title the way the top bar divides sciterm from
           // its tabs: a left border, not a glyph.
           <span className="entity-nav">
             <button

@@ -212,7 +212,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
-          <span className="brand-name">litgraph</span>
+          <span className="brand-name">sciterm</span>
         </div>
         {/* The fixed tab sits outside PaperTabs so it never scrolls with them. */}
         <nav className="tabs">

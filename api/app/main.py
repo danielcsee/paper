@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         await close_redis(settings.rate_limit_redis_url)
 
 
-app = FastAPI(title="litgraph", lifespan=lifespan)
+app = FastAPI(title="sciterm", lifespan=lifespan)
 
 # Routers first: StaticFiles below is mounted at "/" and would otherwise
 # swallow every path, /pb included.
@@ -62,7 +62,7 @@ app.include_router(pm_router)
 app.include_router(ingestion_router)
 app.include_router(corpus_router)
 
-dist = settings.litgraph_ui_dist
+dist = settings.sciterm_ui_dist
 
 if (dist / "index.html").is_file():
     # Hashed bundles are immutable and can be served straight from disk.
