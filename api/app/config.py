@@ -1,6 +1,7 @@
+import secrets
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -87,6 +88,64 @@ class Settings(BaseSettings):
     #: in a forked process — Metal cannot be initialised after fork.
     embedding_device: Optional[str] = None
 
+    # --- Environment ---
+    #: "local" runs the app wide open, exactly as it behaved before auth
+    #: existed. "prod" gates the metered routes and requires `jwt_secret`.
+    #: One runtime switch rather than a build flag, so the same UI bundle and
+    #: the same image serve both.
+    sciterm_env: Literal["local", "prod"] = "local"
+
+    # --- Auth ---
+    #: Signs access tokens. Required in prod; in local an ephemeral one is
+    #: generated per process, so tokens simply do not survive a restart.
+    jwt_secret: Optional[str] = None
+    #: Access tokens are verified from their signature alone, so this is also
+    #: how long a revoked session can keep working. Short on purpose.
+    access_token_ttl_seconds: int = 900
+    #: How long a *password* session lives, refreshed on use. Code-backed
+    #: sessions ignore this: their deadline comes from the code.
+    refresh_token_ttl_seconds: int = 60 * 60 * 24 * 14
+    #: The free-access window, measured from a code's first redemption.
+    free_code_window_hours: int = 48
+    #: Whether the refresh cookie is marked Secure. Defaults to "yes in prod",
+    #: which is right for any real deployment. Set false only to demo a prod
+    #: build over plain HTTP: a Secure cookie is never sent over http://, so
+    #: sessions would silently fail to survive a reload.
+    cookie_secure: Optional[bool] = None
+
+
+    def model_post_init(self, __context: Any) -> None:
+        """Fail closed on a misconfigured prod, and stay effortless in local.
+
+        A prod deployment without a signing secret would mint tokens anyone
+        could forge, so it refuses to start rather than serving something that
+        looks protected and is not.
+        """
+        if self.sciterm_env == "prod" and not self.jwt_secret:
+            raise ValueError(
+                "SCITERM_ENV=prod requires JWT_SECRET. Generate one with "
+                "`python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`."
+            )
+        if not self.jwt_secret:
+            self.jwt_secret = secrets.token_urlsafe(48)
+
+    @property
+    def refresh_cookie_secure(self) -> bool:
+        """`cookie_secure` if set, otherwise on exactly when auth is on."""
+        if self.cookie_secure is None:
+            return self.auth_required
+        return self.cookie_secure
+
+    @property
+    def auth_required(self) -> bool:
+        """Whether the metered routes are gated. False in local development."""
+        return self.sciterm_env == "prod"
+
+    @property
+    def signing_secret(self) -> str:
+        """`jwt_secret`, narrowed to `str` — `model_post_init` guarantees one."""
+        assert self.jwt_secret is not None
+        return self.jwt_secret
 
     @property
     def neo4j_credentials(self) -> tuple[str, str]:

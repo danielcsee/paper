@@ -1,5 +1,6 @@
 """FastAPI app: the /pb NCBI client routes, plus the compiled UI bundle."""
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,8 +8,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.app.config import get_settings
+from api.auth import admin_router, router as auth_router
 from api.cache import DocumentCache
 from api.redis_conn import close_client as close_redis
+from api.corpus import protected_router as corpus_protected_router
 from api.corpus import router as corpus_router
 from api.ingestion import router as ingestion_router
 from api.ncbi import http as ncbi_http
@@ -17,6 +20,7 @@ from api.pb_client import router as pb_router
 from api.pm_client import PmcClient
 from api.pm_client import router as pm_router
 
+log = logging.getLogger(__name__)
 settings = get_settings()
 
 
@@ -45,6 +49,11 @@ async def lifespan(app: FastAPI):
         client, settings.pubtator_base_url, cache=app.state.cache
     )
     app.state.pmc = PmcClient(client, settings.pmc_s3_base_url, settings.papers_dir)
+    log.info(
+        "sciterm starting in %s (auth %s)",
+        settings.sciterm_env,
+        "required" if settings.auth_required else "off",
+    )
     try:
         yield
     finally:
@@ -57,9 +66,14 @@ app = FastAPI(title="sciterm", lifespan=lifespan)
 
 # Routers first: StaticFiles below is mounted at "/" and would otherwise
 # swallow every path, /pb included.
+app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(pb_router)
 app.include_router(pm_router)
 app.include_router(ingestion_router)
+# Before the free corpus router, not after: "/corpus/rag_search" would
+# otherwise be matched by "/corpus/{paper_id}" and rejected as a bad integer.
+app.include_router(corpus_protected_router)
 app.include_router(corpus_router)
 
 dist = settings.sciterm_ui_dist

@@ -15,3 +15,5 @@ celery[redis]>=5.4,<6
 # Also used directly, for the PubTator document cache.
 redis>=5,<7
 sentence-transformers>=3.0,<6
+# Auth: signs the short-lived access tokens.
+PyJWT>=2.9,<3

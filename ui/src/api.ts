@@ -1,5 +1,8 @@
 /** Typed access to the FastAPI /pb routes. Mirrors api/pb_client/models.py. */
 
+import { authFetch } from './auth/session'
+
+
 export interface SearchResult {
   pmid: number | null
   pmcid: string | null
@@ -39,7 +42,7 @@ export async function searchPapers(
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const params = new URLSearchParams({ text, page: String(page) })
-  const response = await fetch(`/pb/search?${params}`, { signal })
+  const response = await authFetch(`/pb/search?${params}`, { signal })
 
   if (!response.ok) {
     // FastAPI errors are {"detail": ...}; fall back to the status line.
@@ -113,7 +116,7 @@ export async function fetchImportStatus(
 ): Promise<ImportStatusResponse> {
   const params = new URLSearchParams()
   for (const pmid of pmids) params.append('pmids', String(pmid))
-  const response = await fetch(`/import/status?${params}`, { signal })
+  const response = await authFetch(`/import/status?${params}`, { signal })
 
   if (!response.ok) {
     let detail = `could not read import status (${response.status})`
@@ -138,7 +141,7 @@ export async function importPapers(
   pmids: ImportPmids[],
   signal?: AbortSignal,
 ): Promise<ImportResponse> {
-  const response = await fetch('/import', {
+  const response = await authFetch('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pmids }),
@@ -194,7 +197,7 @@ export async function fetchCorpus(
     page: String(page),
     page_size: String(CORPUS_PAGE_SIZE),
   })
-  const response = await fetch(`/corpus?${params}`, { signal })
+  const response = await authFetch(`/corpus?${params}`, { signal })
 
   if (!response.ok) {
     let detail = `could not load your corpus (${response.status})`
@@ -256,7 +259,7 @@ export async function fetchPaper(
   paperId: number,
   signal?: AbortSignal,
 ): Promise<PaperDetail> {
-  const response = await fetch(`/corpus/${paperId}`, { signal })
+  const response = await authFetch(`/corpus/${paperId}`, { signal })
   if (!response.ok) {
     let detail =
       response.status === 404
@@ -325,7 +328,7 @@ export async function fetchPaperEntities(
   paperId: number,
   signal?: AbortSignal,
 ): Promise<PaperEntityList> {
-  const response = await fetch(`/corpus/${paperId}/entities`, { signal })
+  const response = await authFetch(`/corpus/${paperId}/entities`, { signal })
   if (!response.ok) {
     throw new ApiError(
       response.status === 404
@@ -373,7 +376,7 @@ export async function ragSearch(
   signal?: AbortSignal,
 ): Promise<RagSearchResponse> {
   const params = new URLSearchParams({ query })
-  const response = await fetch(`/corpus/rag_search?${params}`, { signal })
+  const response = await authFetch(`/corpus/rag_search?${params}`, { signal })
 
   if (!response.ok) {
     let detail = `search failed (${response.status})`
@@ -410,7 +413,7 @@ export async function fetchReferences(
   paperId: number,
   signal?: AbortSignal,
 ): Promise<ReferenceList> {
-  const response = await fetch(`/corpus/${paperId}/references`, { signal })
+  const response = await authFetch(`/corpus/${paperId}/references`, { signal })
   if (!response.ok) {
     let detail = `could not load references (${response.status})`
     try {

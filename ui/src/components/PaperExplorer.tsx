@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { ApiError, importPapers, type ImportPmids, type SearchResult } from '../api'
+import { useAuth } from '../auth'
 import { useImportStatus } from '../useImportStatus'
 import ImportStatus from './ImportStatus'
 import ReferenceImporter from './ReferenceImporter'
@@ -24,14 +25,24 @@ interface Props {
  * `ImportStatus`, and so switching panels never abandons an import in flight.
  */
 export default function PaperExplorer({ referencesFor, onCloseReferences }: Props) {
+  // Both panels queue through here, so gating this one function covers the
+  // search results and the reference list at once — including the case where a
+  // code expires while the panel is still open.
+  const { requireAuth } = useAuth()
   const [importing, setImporting] = useState(false)
   const [importCount, setImportCount] = useState(0)
   const [importError, setImportError] = useState<string | null>(null)
   const importStatus = useImportStatus()
   const abortRef = useRef<AbortController | null>(null)
 
-  async function handleImport(pmids: ImportPmids[], papers: SearchResult[]) {
+  function handleImport(pmids: ImportPmids[], papers: SearchResult[]) {
     if (pmids.length === 0) return
+    // Gate runs `runImport`, not itself: a self-gating function recurses
+    // forever the moment the gate is open.
+    requireAuth(() => void runImport(pmids, papers))
+  }
+
+  async function runImport(pmids: ImportPmids[], papers: SearchResult[]) {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller

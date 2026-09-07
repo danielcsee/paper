@@ -1,12 +1,13 @@
 # ui/src
 
 Application source. The layout is flat: an entry point, a root component,
-shared types, navigation, import tracking, the API client, and
-[`components/`](components).
+shared types, navigation, import tracking, the API client, plus
+[`auth/`](auth) and [`components/`](components).
 
 ## Files
 
-**`main.tsx`** — mounts `<App />` into `#root` and imports `styles.css`.
+**`main.tsx`** — mounts `<App />` into `#root`, wrapped in `<AuthProvider>`,
+and imports `styles.css`.
 
 **`App.tsx`** — owns chat state, the open paper tabs and the visit stack.
 Closing a paper tab pops that stack, skipping entries whose tab has since
@@ -27,8 +28,15 @@ off, with a five-minute cap.
 
 **`api.ts`** — typed access to the `/pb`, `/import` and `/corpus` routes,
 mirroring the backend response models, so **changing one there means changing
-this file too**. Throws `ApiError`, which carries the HTTP status.
+this file too**. Throws `ApiError`, which carries the HTTP status. Every call
+goes through `authFetch` from [`auth/`](auth), which attaches the access token
+and retries once through `/auth/refresh` on a 401.
 
 **`types.ts`** — shared UI types. API payload types live in `api.ts`.
+
+**`auth/`** — the access-code gate: token store, `useAuth()`, and the modal.
+The app loads whole for everyone; this decides which controls work. See its
+[README](auth) before wiring a new gated control — the gate takes the *work*,
+never the gated function itself.
 
 **`styles.css`** — all styling, hand-written. No framework, no CSS modules.

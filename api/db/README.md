@@ -21,6 +21,13 @@ psycopg2, which is not installed.
 `paper_chunks`, `entities`, `paper_entity_mentions`, `paper_relations`,
 `paper_references`, `paper_stage_runs`.
 
+The access-control tables — `users`, `auth_sessions`, `free_access_codes` —
+live in [`api/auth/models.py`](../auth/models.py) instead, because they are
+that feature's schema and share nothing with the paper graph. They use this
+`Base` and this migration chain, so `env.py` imports them for their side effect
+on `Base.metadata`; forget that import and autogenerate proposes dropping
+them.
+
 ## Three design rules encoded here
 
 **Store what cannot be recomputed locally.** Authors, references, annotations

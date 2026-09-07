@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, ragSearch, type PaperDetail } from './api'
+import { useAuth } from './auth'
 import ChatWindow from './components/ChatWindow'
 import CorpusView from './components/CorpusView'
 import PaperTabs from './components/PaperTabs'
@@ -21,6 +22,7 @@ import {
 import type { Message } from './types'
 
 export default function App() {
+  const { unlocked, promptForCode, requireAuth } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [tabs, setTabs] = useState<PaperTab[]>(() => {
     // Tabs survive a reload; the URL still decides which one is showing. A
@@ -224,6 +226,14 @@ export default function App() {
           >
             My Corpus
           </button>
+          {/* Only while locked. Once a code is accepted this disappears
+              rather than turning into a "signed in" badge — there is no
+              account to manage, so a persistent control would suggest one. */}
+          {!unlocked && (
+            <button type="button" className="tab tab-unlock" onClick={promptForCode}>
+              Enter Access Code
+            </button>
+          )}
         </nav>
         <PaperTabs
           tabs={tabs}
@@ -242,7 +252,9 @@ export default function App() {
           <PaperView
             key={view.paperId}
             paperId={view.paperId}
-            onViewReferences={(paperId, title) => setReferencesFor({ paperId, title })}
+            onViewReferences={(paperId, title) =>
+              requireAuth(() => setReferencesFor({ paperId, title }))
+            }
             onLoaded={handleLoaded}
             onMissing={handleMissing}
           />

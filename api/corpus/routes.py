@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 from math import ceil
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
+from api.auth import require_user
 from api.corpus import queries, rag
 from api.ncbi.errors import NcbiError
 from api.corpus.models import (
@@ -31,7 +32,17 @@ from api.pb_client import PubTatorClient
 from api.db import session_scope
 
 log = logging.getLogger(__name__)
+
+#: Reading the stored corpus. Free: these queries never leave the machine and
+#: cost nothing, so an anonymous visitor gets the whole app populated with real
+#: papers rather than an empty shell behind a login wall.
 router = APIRouter(tags=["corpus"])
+
+#: The metered half of the corpus surface, gated as a router rather than route
+#: by route so anything added here is protected the day it is written.
+#: `rag_search` is the chat window (and where an LLM will land); `references`
+#: fetches full papers from PubTator and spends the NCBI budget.
+protected_router = APIRouter(tags=["corpus"], dependencies=[Depends(require_user)])
 
 
 @router.get("/corpus", response_model=CorpusPage, summary="List imported papers")
@@ -66,7 +77,7 @@ def list_corpus(
     )
 
 
-@router.get(
+@protected_router.get(
     "/corpus/rag_search",
     response_model=RagSearchResponse,
     summary="Rank imported papers against a query",
@@ -108,7 +119,7 @@ def rag_search(
     return result
 
 
-@router.get(
+@protected_router.get(
     "/corpus/{paper_id}/references",
     response_model=ReferenceList,
     summary="Importable references of a stored paper",

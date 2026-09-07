@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAuth } from '../auth'
 import RagResults from './RagResults'
 import type { Message } from '../types'
 
@@ -18,6 +19,11 @@ interface Props {
 }
 
 export default function ChatWindow({ messages, onSend, onOpenPaper }: Props) {
+  // Asking a question runs retrieval on the server, so the composer is a
+  // gate. Locked it stays readable and clickable — clicking is what opens the
+  // modal, which a `disabled` control could never do: disabled elements fire
+  // no click events at all.
+  const { unlocked, requireAuth } = useAuth()
   const [draft, setDraft] = useState('')
   // The landing block outlives the first question: it has to animate away
   // before the answer appears, rather than vanishing the instant state changes.
@@ -42,11 +48,19 @@ export default function ChatWindow({ messages, onSend, onOpenPaper }: Props) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, landingVisible])
 
+  /** The work, past the gate. Must not call `submit` — see below. */
+  function send(text: string) {
+    onSend(text)
+    setDraft('')
+  }
+
   function submit(text: string) {
     const trimmed = text.trim()
     if (!trimmed) return
-    onSend(trimmed)
-    setDraft('')
+    // The gate runs `send`, never `submit`. Handing `submit` to requireAuth
+    // would recurse without end: unlocked, requireAuth runs its action
+    // immediately, and that action would gate itself again.
+    requireAuth(() => send(trimmed))
   }
 
   return (
@@ -120,6 +134,13 @@ export default function ChatWindow({ messages, onSend, onOpenPaper }: Props) {
         <textarea
           className="composer-input"
           value={draft}
+          readOnly={!unlocked}
+          onMouseDown={(event) => {
+            if (unlocked) return
+            // Prevent the caret landing in a field that cannot be typed into.
+            event.preventDefault()
+            requireAuth()
+          }}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
@@ -128,10 +149,25 @@ export default function ChatWindow({ messages, onSend, onOpenPaper }: Props) {
             }
           }}
           rows={1}
-          placeholder="Ask a question about your corpus…"
+          placeholder={
+            unlocked
+              ? 'Ask a question about your corpus…'
+              : 'Enter an access code to ask a question…'
+          }
           aria-label="Message"
         />
-        <button className="composer-send" type="submit" disabled={!draft.trim()}>
+        <button
+          className="composer-send"
+          type="submit"
+          // Enabled while locked so the click can open the modal; the empty
+          // draft is not the reason it cannot be used yet.
+          disabled={unlocked && !draft.trim()}
+          onClick={(event) => {
+            if (unlocked) return
+            event.preventDefault()
+            requireAuth()
+          }}
+        >
           Send
         </button>
       </form>
