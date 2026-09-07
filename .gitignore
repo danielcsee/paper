@@ -14,5 +14,8 @@ ui/dist/
 PMC-ids.csv
 papers/
 
+# corpus-pmids.csv is deliberately NOT ignored: 31 lines, and it is the
+# re-import list if the datastore volumes are ever lost.
+
 
 .DS_Store

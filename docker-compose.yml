@@ -6,15 +6,15 @@ services:
     image: pgvector/pgvector:pg17
     container_name: sciterm-postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-litgraph}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litgraph}
-      POSTGRES_DB: ${POSTGRES_DB:-litgraph}
+      POSTGRES_USER: ${POSTGRES_USER:-sciterm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sciterm}
+      POSTGRES_DB: ${POSTGRES_DB:-sciterm}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-litgraph} -d ${POSTGRES_DB:-litgraph}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sciterm} -d ${POSTGRES_DB:-sciterm}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -23,7 +23,7 @@ services:
     image: neo4j:5.26-community
     container_name: sciterm-neo4j
     environment:
-      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/litgraph_dev_pw}
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/sciterm_dev_pw}
       # GDS supplies PageRank / personalized PageRank for the ranking layer.
       NEO4J_PLUGINS: '["graph-data-science"]'
       NEO4J_dbms_security_procedures_unrestricted: gds.*
@@ -83,7 +83,7 @@ services:
       dockerfile: Dockerfile
     container_name: sciterm-api
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-litgraph}:${POSTGRES_PASSWORD:-litgraph}@postgres:5432/${POSTGRES_DB:-litgraph}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sciterm}:${POSTGRES_PASSWORD:-sciterm}@postgres:5432/${POSTGRES_DB:-sciterm}
       NEO4J_URI: bolt://neo4j:7687
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1

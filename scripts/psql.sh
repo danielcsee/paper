@@ -6,4 +6,4 @@ cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && source .env && set +a
 
 exec docker exec -it sciterm-postgres psql \
-  -U "${POSTGRES_USER:-litgraph}" -d "${POSTGRES_DB:-litgraph}"
+  -U "${POSTGRES_USER:-sciterm}" -d "${POSTGRES_DB:-sciterm}"
