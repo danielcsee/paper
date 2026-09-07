@@ -41,11 +41,21 @@ services:
       retries: 30
       start_period: 60s
 
-  redis:
+  redis-celery-broker:
     image: redis:7-alpine
-    container_name: sciterm-redis
-    # Celery's broker and result backend. Queue state is reconstructible from
-    # paper_stage_runs, so persistence is deliberately off.
+    container_name: sciterm-redis-celery-broker
+    # Three tenants, not one -- the name says "broker" because that is the
+    # largest, but read this before treating it as only that:
+    #   db0  Celery's broker queues, AND the `ncbi:ratelimit` key that holds
+    #        the 3/s NCBI budget shared by every process
+    #   db1  Celery's result backend
+    # The rate-limit key is the reason this instance cannot simply be swapped
+    # for a per-service broker: split it and the 3/s becomes 3/s *each*.
+    #
+    # Queue state is reconstructible from paper_stage_runs, so persistence is
+    # deliberately off. Eviction is off too (Redis defaults to noeviction) and
+    # must stay off: Celery's queue lists carry no TTL, so an evicting policy
+    # here would silently drop queued tasks.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -85,8 +95,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sciterm}:${POSTGRES_PASSWORD:-sciterm}@postgres:5432/${POSTGRES_DB:-sciterm}
       NEO4J_URI: bolt://neo4j:7687
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis-celery-broker:6379/0
+      CELERY_RESULT_BACKEND: redis://redis-celery-broker:6379/1
       REDIS_CACHE_URL: redis://redis-cache:6379/0
     ports:
       - "${API_PORT:-8000}:8000"
@@ -95,7 +105,7 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
-      redis:
+      redis-celery-broker:
         condition: service_healthy
       redis-cache:
         condition: service_healthy
