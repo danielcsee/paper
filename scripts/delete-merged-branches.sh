@@ -12,11 +12,18 @@ git rev-parse --verify "$BASE_BRANCH" >/dev/null 2>&1 || {
 
 current="$(git rev-parse --abbrev-ref HEAD)"
 
-mapfile -t branches < <(
+# mapfile needs bash 4+; macOS ships bash 3.2, so read into the array by hand.
+branches=()
+while IFS= read -r branch; do
+  branches+=("$branch")
+done < <(
   git branch --merged "$BASE_BRANCH" --format='%(refname:short)' \
     | grep -vFx -e "$BASE_BRANCH" -e "$current"
 )
-mapfile -t unmerged < <(
+unmerged=()
+while IFS= read -r branch; do
+  unmerged+=("$branch")
+done < <(
   git branch --no-merged "$BASE_BRANCH" --format='%(refname:short)' \
     | grep -vFx -e "$BASE_BRANCH" -e "$current"
 )
