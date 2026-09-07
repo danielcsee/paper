@@ -5,14 +5,18 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from api.auth import require_user
 
 from api.ncbi.errors import NcbiError
 from api.pm_client.models import DownloadResponse, FileKind
 from api.pm_client.pmc import ALL_KINDS, PmcClient
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/pm", tags=["pm"])
+# Downloads pull article files from PMC under the shared NCBI budget, so the
+# whole router is gated.
+router = APIRouter(prefix="/pm", tags=["pm"], dependencies=[Depends(require_user)])
 
 
 @router.get("/download", response_model=DownloadResponse, summary="Download a paper from PMC")

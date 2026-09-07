@@ -30,6 +30,9 @@ It is idempotent and safe to re-run. In order it will:
 5. `npm install` in `ui/` if `node_modules` is missing
 6. start uvicorn, and Vite unless `--prod`
 
+It exports `SCITERM_ENV=local`, so a `.env` copied down from a prod host cannot
+quietly put the access-code gate in front of local development.
+
 Ctrl-C stops the app processes. **The datastores keep running** — stop them
 with `docker compose down`.
 
@@ -46,6 +49,35 @@ Projects the Postgres corpus into the Neo4j knowledge graph — see
 
 Idempotent: every node is merged on its key, so re-run it after importing more
 papers. `--reset` clears data but keeps the constraints.
+
+## `set-admin-password.sh`
+
+Sets the `admin` account's password. Hashes it locally and writes only the
+hash, so no secret ever lands in a migration or a `.env`.
+
+```bash
+./scripts/set-admin-password.sh          # prompt (does not echo)
+./scripts/set-admin-password.sh --show   # print a hash, write nothing
+```
+
+Until this is run, `admin` has no hash and password login always fails — the
+correct state for a fresh checkout. Changing the password revokes every
+existing admin session.
+
+## `generate-codes.sh`
+
+Mints free access codes and posts them to a running server through
+`POST /admin/generate_codes`.
+
+```bash
+./scripts/generate-codes.sh 5                          # local API
+./scripts/generate-codes.sh 5 https://sciterm.example  # a deployment
+```
+
+Prompts for the admin password, trades it for an access token, and prints the
+codes once. Codes are 24 urlsafe characters (~143 bits); the server refuses
+anything under 16, since a code is the only secret in front of the metered
+features.
 
 ## `stop.sh`
 

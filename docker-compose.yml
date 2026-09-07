@@ -98,6 +98,10 @@ services:
       CELERY_BROKER_URL: redis://redis-celery-broker:6379/0
       CELERY_RESULT_BACKEND: redis://redis-celery-broker:6379/1
       REDIS_CACHE_URL: redis://redis-cache:6379/0
+      # The packaged image is what gets deployed, so it runs gated. JWT_SECRET
+      # has no default on purpose: the app refuses to start without one.
+      SCITERM_ENV: ${SCITERM_ENV:-prod}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET before running the app profile}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:

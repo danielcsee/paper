@@ -47,6 +47,11 @@ set -a; . ./.env; set +a
 API_PORT="${API_PORT:-8000}"
 UI_PORT="${UI_PORT:-5173}"
 
+# dev.sh is the local stack by definition. Exported rather than left to the
+# default so that a .env copied down from a prod host cannot quietly put the
+# login gate in front of local development.
+export SCITERM_ENV=local
+
 # ---------- datastores ----------
 if [ "$START_DB" = 1 ]; then
   command -v docker >/dev/null || die "docker not found (or run with --no-db)"

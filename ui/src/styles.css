@@ -1093,3 +1093,118 @@ body {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .sidebar { display: none; }
 }
+
+/* ---------- access code: the unlock button and its modal ---------- */
+
+/* Sits beside "My Corpus" while the visitor is locked out, and is removed
+   from the DOM once a code is accepted. Filled rather than outlined: it is the
+   one thing on the bar we want looked at. */
+.tab-unlock {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 560;
+  animation: unlock-attention 2.4s ease-in-out 3;
+}
+
+.tab-unlock:hover {
+  background: var(--accent);
+  color: var(--surface);
+  filter: brightness(1.08);
+}
+
+/* Three cycles, not infinite: an attention cue that never stops reads as a
+   fault, and it sits next to text people are trying to read. */
+@keyframes unlock-attention {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(180 80 31 / 0); }
+  50%      { box-shadow: 0 0 0 4px rgb(180 80 31 / 0.22); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-unlock { animation: none; }
+}
+
+.code-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.18);
+}
+
+.code-dialog::backdrop {
+  background: rgb(0 0 0 / 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.code-form { display: flex; flex-direction: column; padding: 22px; }
+
+.code-title { margin: 0 0 8px; font-size: 17px; font-weight: 620; letter-spacing: -0.01em; }
+
+.code-intro { margin: 0 0 18px; color: var(--text-dim); font-size: 13.5px; line-height: 1.5; }
+
+.code-label {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 560;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.code-input {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.code-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.code-input[aria-invalid='true'] { border-color: var(--accent); }
+
+.code-error { margin: 8px 0 0; color: var(--accent); font-size: 13px; }
+
+.code-note { margin: 14px 0 0; color: var(--text-dim); font-size: 12.5px; line-height: 1.45; }
+
+.code-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+.code-cancel,
+.code-submit {
+  padding: 8px 15px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: filter 0.12s, background 0.12s, color 0.12s;
+}
+
+.code-cancel {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+}
+
+.code-cancel:hover:not(:disabled) { color: var(--text); background: var(--accent-soft); }
+
+.code-submit {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 560;
+}
+
+.code-submit:hover:not(:disabled) { filter: brightness(1.08); }
+
+.code-cancel:disabled,
+.code-submit:disabled { opacity: 0.55; cursor: default; }
+
+/* A locked input still shows its placeholder and still takes a click — that
+   click is what opens the modal — so it must not look like a dead control. */
+.composer-input[readonly],
+.search-input[readonly] { cursor: pointer; }

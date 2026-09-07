@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 from collections import Counter
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from api.auth import require_user
 
 from api.db import session_scope
 from api.ingestion import persist
@@ -24,7 +26,10 @@ from api.ingestion.models import (
 from api.ingestion.tasks import import_paper
 
 log = logging.getLogger(__name__)
-router = APIRouter(tags=["import"])
+# The whole pipeline is metered: importing fetches from PubTator and PMC and
+# then burns local compute on chunking and embeddings. Gated at the router, so
+# a new /import route is protected the day it is written.
+router = APIRouter(tags=["import"], dependencies=[Depends(require_user)])
 
 
 @router.post("/import", response_model=ImportResponse, status_code=202, summary="Queue papers")

@@ -7,6 +7,7 @@ import {
   type ImportPmids,
   type SearchResult,
 } from '../api'
+import { useAuth } from '../auth'
 import PaperCard from './PaperCard'
 
 /** Pixels from the bottom at which the next page starts loading. */
@@ -20,6 +21,9 @@ interface Props {
 
 /** Search PubTator and queue results for import. */
 export default function SearchPubTator({ onImport, importing }: Props) {
+  // Every search is a PubTator call against a shared rate limit, so the search
+  // bar is a gate in the same way the chat composer is.
+  const { unlocked, requireAuth } = useAuth()
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -68,10 +72,9 @@ export default function SearchPubTator({ onImport, importing }: Props) {
     }
   }, [])
 
-  function submit(event: React.FormEvent) {
-    event.preventDefault()
-    const text = draft.trim()
-    if (!text) return
+  /** The work, past the gate. Resumed whole after a code is accepted, so the
+      panel state and the request can never end up half-applied. */
+  function startSearch(text: string) {
     setQuery(text)
     setResults([])
     setPage(0)
@@ -81,6 +84,13 @@ export default function SearchPubTator({ onImport, importing }: Props) {
     setSelected(new Map())
     scrollRef.current?.scrollTo({ top: 0 })
     void runSearch(text, 1)
+  }
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault()
+    const text = draft.trim()
+    if (!text) return
+    requireAuth(() => startSearch(text))
   }
 
   // Infinite scroll: a sentinel below the list pulls the next page into view.
@@ -134,14 +144,26 @@ export default function SearchPubTator({ onImport, importing }: Props) {
             className="search-input"
             type="search"
             value={draft}
+            readOnly={!unlocked}
+            onMouseDown={(event) => {
+              if (unlocked) return
+              event.preventDefault()
+              requireAuth()
+            }}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Search PubTator…"
+            placeholder={unlocked ? 'Search PubTator…' : 'Enter an access code to search…'}
             aria-label="Search papers"
           />
           <button
             className="search-go"
             type="submit"
-            disabled={!draft.trim()}
+            // Live while locked, so the click has somewhere to go: the modal.
+            disabled={unlocked && !draft.trim()}
+            onClick={(event) => {
+              if (unlocked) return
+              event.preventDefault()
+              requireAuth()
+            }}
             aria-label="Search"
             title="Search"
           >

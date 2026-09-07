@@ -121,3 +121,14 @@ lives in `nextTrackedPapers`, split out of the hook so it can be tested alone.
 ## `OpenInTabButton.tsx`
 
 Opens a paper in a background tab. A **sibling** of the card, never a child.
+
+## The access-code gate
+
+`ChatWindow`, `SearchPubTator` and `PaperExplorer` call `useAuth()` directly
+rather than taking props for it: each one owns a control that spends money or
+NCBI budget, and prop-drilling the gate through the tree would make it easy to
+forget one.
+
+Locked inputs are `readOnly`, not `disabled` — a disabled element fires no
+click events, and the click is what opens the modal. Pass `requireAuth` the
+work being guarded, never the guarded entry point; see [`../auth`](../auth).

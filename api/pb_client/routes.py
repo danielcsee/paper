@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from api.auth import require_user
 
 from api.ncbi.errors import NcbiError
 from api.pb_client.models import PaperResponse, SearchResponse
 from api.pb_client.pubtator import PubTatorClient
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/pb", tags=["pb"])
+# Every route here calls PubTator, which is rate-limited for the whole
+# organisation. Gated at the router so a new /pb route cannot be added
+# unprotected by accident.
+router = APIRouter(prefix="/pb", tags=["pb"], dependencies=[Depends(require_user)])
 
 
 def _fail(exc: NcbiError) -> HTTPException:
