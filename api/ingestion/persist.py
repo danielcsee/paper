@@ -16,7 +16,7 @@ import datetime as dt
 import logging
 from typing import Literal, Optional, Sequence
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -392,7 +392,45 @@ def source_database(
     )
 
 
-def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
+def unnamed_concepts(paper: PaperResponse) -> dict[str, str]:
+    """identifier -> source database, for concepts PubTator did not name.
+
+    PubTator has no label for Species or CellLines and sends the identifier in
+    the name field: `"name": "9606"`. That is the signature this looks for, in
+    annotations *and* relation roles — a concept only a relation names has no
+    mention row, so anything driven off `paper_entity_mentions` cannot see it.
+
+    Reads the paper in memory, before anything is written, so the resolved
+    names can go in with the insert rather than being patched over it.
+    """
+    databases = concept_databases(paper)
+    concepts: dict[str, str] = {}
+
+    def consider(raw: object, name: Optional[str], kind: Optional[str], database=None) -> None:
+        text = str(raw).strip() if raw is not None else ""
+        source = source_database(text, kind, databases, database)
+        identifier = normalise_identifier(raw, source)
+        if identifier is None or source is None:
+            return
+        local = identifier.split(":", 1)[-1]
+        if (name or "").strip() in ("", local):
+            concepts[identifier] = source
+
+    for passage in paper.passages:
+        for annotation in passage.annotations:
+            if annotation.grounded:
+                consider(
+                    annotation.identifier, annotation.name, annotation.type, annotation.database
+                )
+    for relation in paper.relations:
+        consider(relation.role1_identifier, relation.role1_name, relation.role1_type)
+        consider(relation.role2_identifier, relation.role2_name, relation.role2_type)
+    return concepts
+
+
+def upsert_entities(
+    session: Session, paper: PaperResponse, names: Optional[dict[str, str]] = None
+) -> dict[str, int]:
     """Ensure an `entities` row per grounded concept; return identifier -> id.
 
     Ungrounded concepts never reach this table: they fragment the graph, which
@@ -420,6 +458,7 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     wanted: dict[str, dict] = {}
     skipped = 0
     no_provenance = 0
+    resolved = names or {}
 
     databases = concept_databases(paper)
 
@@ -441,7 +480,9 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
                 # same way: entity 49 had entity_type " " alongside its " " id.
                 "entity_type": (kind or "").strip() or "Unknown",
                 "database": source,
-                "name": name,
+                # A name resolved before the write, where there is one. This is
+                # why nothing has to correct "9606" to "human" afterwards.
+                "name": resolved.get(identifier) or name,
             },
         )
         return True
@@ -479,23 +520,50 @@ def upsert_entities(session: Session, paper: PaperResponse) -> dict[str, int]:
     if not wanted:
         return {}
 
+    identifiers = sorted(wanted)
+
     # Sorted by identifier, which is the conflict target. Postgres takes index
     # tuple locks in insertion order, so two transactions inserting the same
     # concepts in different orders deadlock -- and the order here was annotation
     # order, which differs per paper. Measured before the fix: papers 83 and 84
     # shared 24 inverted pairs. A total order makes a cycle impossible.
     #
-    # DO UPDATE rather than DO NOTHING: RETURNING only yields rows the statement
-    # actually touched, and a no-op conflict would silently drop existing ids.
-    rows = session.execute(
+    # DO NOTHING, not DO UPDATE. An update wrote `name` back over every existing
+    # row -- an identical value for MeSH and Gene, and the identifier itself for
+    # Species, which then had to be resolved again. It also took an exclusive
+    # lock on rows like ncbi_taxonomy:9606, which 26 of 30 papers touch. Nothing
+    # here needs to change a row that already exists.
+    session.execute(
         insert(Entity)
-        .values([wanted[identifier] for identifier in sorted(wanted)])
-        .on_conflict_do_update(
-            index_elements=["identifier"], set_={"name": insert(Entity).excluded.name}
+        .values([wanted[identifier] for identifier in identifiers])
+        .on_conflict_do_nothing(index_elements=["identifier"])
+    )
+    # A separate read, because DO NOTHING returns nothing for the rows that
+    # were already there, which is most of them.
+    existing = session.execute(
+        select(Entity.identifier, Entity.id, Entity.name).where(
+            Entity.identifier.in_(identifiers)
         )
-        .returning(Entity.identifier, Entity.id)
     ).all()
-    return {identifier: entity_id for identifier, entity_id in rows}
+
+    # The one case an insert cannot reach: a row that already exists unnamed,
+    # written before names were resolved. Rare by construction -- 3 of 588 rows
+    # when this was added, all of them taxa NCBI has merged and cannot name.
+    repairs = {
+        entity_id: resolved[identifier]
+        for identifier, entity_id, current in existing
+        if identifier in resolved
+        and (current is None or current == identifier.split(":", 1)[-1])
+        and resolved[identifier] != current
+    }
+    if repairs:
+        session.execute(
+            update(Entity),
+            [{"id": entity_id, "name": repairs[entity_id]} for entity_id in sorted(repairs)],
+        )
+        log.info("named %d pre-existing entity/entities for PMID %s", len(repairs), paper.pmid)
+
+    return {identifier: entity_id for identifier, entity_id, _ in existing}
 
 
 def replace_chunks(session: Session, paper_id: int, chunks: Sequence[Chunk]) -> dict[int, int]:
@@ -612,8 +680,17 @@ def replace_relations(
     return len(rows)
 
 
-def persist_paper(session: Session, paper: PaperResponse, raw: dict) -> tuple[int, int]:
+def persist_paper(
+    session: Session,
+    paper: PaperResponse,
+    raw: dict,
+    names: Optional[dict[str, str]] = None,
+) -> tuple[int, int]:
     """Write a fetched paper and everything derived from it.
+
+    `names` maps identifier -> resolved name for concepts PubTator left unnamed,
+    worked out before this transaction opened. Passing them in means entities
+    are inserted correct rather than corrected afterwards.
 
     Returns `(paper_id, chunk_count)`.
     """
@@ -622,7 +699,7 @@ def persist_paper(session: Session, paper: PaperResponse, raw: dict) -> tuple[in
     replace_authors(session, paper_id, paper)
     replace_references(session, paper_id, paper)
 
-    entity_ids = upsert_entities(session, paper)
+    entity_ids = upsert_entities(session, paper, names)
     chunks = chunks_from_passages(paper.passages)
     chunk_ids = replace_chunks(session, paper_id, chunks)
     replace_mentions(session, paper_id, paper, entity_ids, chunks, chunk_ids)

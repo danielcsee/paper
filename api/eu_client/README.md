@@ -13,7 +13,7 @@ and `ncbi_mesh` carry real names.
 | File | Purpose |
 |---|---|
 | `eutils.py` | `EutilsClient.names(db, uids)` — batched `esummary` lookups |
-| `naming.py` | Find unnamed entities, resolve them, write the names back |
+| `naming.py` | Find unnamed concepts, resolve them, write the names back |
 | `backfill.py` | `python -m api.eu_client.backfill` for rows already stored |
 | `models.py` | `ConceptName` — preferred label, plus common and formal names |
 
@@ -30,11 +30,18 @@ catus*, and the formal name is kept alongside it.
 looked up.
 
 **Some taxa never resolve.** Three in this corpus are `status: merged` at NCBI
-and return empty names. Ingest-time naming is scoped to the importing paper's
-own concepts, so those are not re-queried on every import.
+and return empty names, so they are asked about once per paper that names them
+and never stick.
 
-**Nothing here can fail an import.** The ingest hook runs after the stage is
-marked done and swallows its errors: a missing label is cosmetic.
+**Resolved before the write, not after.** Ingest scans the fetched paper in
+memory, checks which identifiers the database already names — 113 of 116 across
+the stored corpus — and resolves only the rest, so names go in with the insert.
+Patching afterwards meant overwriting `name` on rows every other paper touches,
+and a failed lookup left a value someone had to correct later.
+
+**Nothing here can fail an import.** Resolution is fail-open and runs outside
+any transaction: a missing label is cosmetic, and a rate-limited call inside a
+transaction is how short locks become long ones.
 
 ## Dependencies
 
