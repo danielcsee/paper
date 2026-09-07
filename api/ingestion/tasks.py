@@ -20,14 +20,16 @@ import logging
 from typing import Optional
 
 from celery import chain
+from sqlalchemy import select
 
 from api.app.config import get_settings
 from api.cache import DocumentCache
 from api.ingestion.celery_app import celery_app
 from api.db import session_scope
-from api.db.models import PaperChunk
+from api.db.models import Paper, PaperChunk
 from api.ingestion import persist
 from api.eu_client import naming
+from api.graph import export as graph
 from api.ingestion.embedding import embed_texts, embedding_fingerprint
 from api.ncbi import http as ncbi_http
 from api.redis_conn import close_client as close_redis
@@ -38,6 +40,10 @@ log = logging.getLogger(__name__)
 
 #: Bumped when the ingest mapping changes in a way that should re-run the stage.
 INGEST_VERSION = "1"
+
+#: Bumped when the graph projection changes shape — new labels, new edge
+#: properties — so every paper re-projects without a migration.
+GRAPH_VERSION = "1"
 
 #: Postgres class 40 — serialization_failure and deadlock_detected. The
 #: transaction was rolled back for a reason that is not this paper's fault and
@@ -202,7 +208,10 @@ def ingest_paper(self, pmid: int, force: bool = False) -> int:
 
 @celery_app.task(bind=True, name="api.ingestion.tasks.embed_paper", max_retries=2)
 def embed_paper(self, paper_id: int, force: bool = False) -> int:
-    """Fill `paper_chunks.embedding` for one paper. Returns chunks embedded.
+    """Fill `paper_chunks.embedding` for one paper. Returns the `papers.id`.
+
+    Returns the id, not the chunk count, because a Celery chain feeds each
+    task the previous one's result and `graph_paper` needs the paper.
 
     Separate from ingest because it is the slow half and must be retryable —
     and re-runnable after a model change — without another PubTator fetch.
@@ -248,7 +257,56 @@ def embed_paper(self, paper_id: int, force: bool = False) -> int:
         raise self.retry(exc=exc, countdown=10) from exc
 
     log.info("embedded %d chunks for paper %s", len(rows), paper_id)
-    return len(rows)
+    return paper_id
+
+
+@celery_app.task(bind=True, name="api.ingestion.tasks.graph_paper", max_retries=3)
+def graph_paper(self, paper_id: int, force: bool = False) -> int:
+    """Project one paper into Neo4j. Returns the `papers.id`.
+
+    The last stage, and the one that decides whether a paper counts as
+    imported: `PaperStageRun.FINAL_STAGE` is "graph", so a paper is not in the
+    corpus listing or RAG results until it is in the graph too.
+
+    Reuses `graph.load_paper`, which is `load_all` with a pmid filter, so the
+    per-paper projection and the bulk one cannot drift into disagreement.
+    """
+    with session_scope() as session:
+        if not force and persist.stage_is_current(session, paper_id, "graph", GRAPH_VERSION):
+            log.info("graph for paper %s already current, skipping", paper_id)
+            return paper_id
+        pmid = session.execute(
+            select(Paper.pmid).where(Paper.id == paper_id)
+        ).scalar_one()
+        persist.mark_stage(session, paper_id, "graph", "running")
+
+    try:
+        # The read session stays open across the Bolt writes. It holds only
+        # ACCESS SHARE, so it blocks no writer -- but it does hold a pooled
+        # connection, which is the thing to watch if this ever runs wide.
+        with session_scope() as session:
+            counts = graph.load_paper(session, pmid)
+        with session_scope() as session:
+            persist.mark_stage(
+                session, paper_id, "graph", "done", fingerprint=GRAPH_VERSION
+            )
+    except Exception as exc:
+        retryable = is_transient_conflict(exc) and self.request.retries < self.max_retries
+        with session_scope() as session:
+            persist.mark_stage(
+                session,
+                paper_id,
+                "graph",
+                "pending" if retryable else "failed",
+                error=str(exc)[:500],
+            )
+        if retryable:
+            raise self.retry(exc=exc, countdown=5) from exc
+        log.exception("graph load failed for paper %s", paper_id)
+        raise
+
+    log.info("graphed paper %s (pmid %s): %s", paper_id, pmid, counts._asdict())
+    return paper_id
 
 
 def import_paper(pmid: int, *, force: bool = False) -> Optional[object]:
@@ -262,5 +320,8 @@ def import_paper(pmid: int, *, force: bool = False) -> Optional[object]:
     tasks are bound to it directly for the same reason.
     """
     return chain(
-        ingest_paper.s(pmid, force=force), embed_paper.s(force=force), app=celery_app
+        ingest_paper.s(pmid, force=force),
+        embed_paper.s(force=force),
+        graph_paper.s(force=force),
+        app=celery_app,
     ).apply_async()
