@@ -20,11 +20,11 @@ class Settings(BaseSettings):
 
     # Datastore connections, so the image and the host process read their
     # addresses from one place.
-    database_url: str = "postgresql://litgraph:litgraph@localhost:5432/litgraph"
+    database_url: str = "postgresql://sciterm:sciterm@localhost:5432/sciterm"
     neo4j_uri: str = "bolt://localhost:7687"
     #: The same "user/password" string the Neo4j container reads, so the server
     #: and its clients cannot drift apart on credentials.
-    neo4j_auth: str = "neo4j/litgraph_dev_pw"
+    neo4j_auth: str = "neo4j/sciterm_dev_pw"
     #: Community edition serves exactly one user database, named "neo4j".
     neo4j_database: str = "neo4j"
 
