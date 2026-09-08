@@ -9,9 +9,10 @@ partial unique index that carry the "anonfree tokens <= activated codes"
 invariant are not things autogenerate produces, and the seeded accounts are
 data rather than schema.
 
-Both accounts are seeded without a password hash. `admin` gets one from
-`scripts/set-admin-password.sh`, so no secret is ever written into a migration;
-`anonfree` is forbidden one by a table constraint.
+Both accounts are seeded without a password hash, so no secret is ever
+written into a migration. `admin` gets one from POST /admin/create_admin_user
+(see the later revision c9e4b71d5f38); `anonfree` is forbidden one by a table
+constraint.
 """
 
 from typing import Sequence, Union

@@ -16,19 +16,25 @@ from sqlalchemy import func, select
 
 from api.auth.config import AuthSettings, get_auth_settings
 from api.auth import service
-from api.auth.dependencies import LOCAL_ADMIN, bearer_token, optional_principal
+from api.auth.dependencies import optional_principal
 from api.auth.models import FreeAccessCode
 from api.auth.schemas import (
+    ChallengeRequest,
+    ChallengeResponse,
+    CreateAdminRequest,
+    CreateAdminResponse,
     GenerateCodesRequest,
     GenerateCodesResponse,
     LoginRequest,
     RedeemRequest,
     SessionInfo,
+    SignedRequest,
     TokenResponse,
     UserInfo,
 )
 from api.auth.service import AuthError, Grant
-from api.auth.tokens import Principal, decode_access_token, issue_access_token
+from api.auth import sshsig
+from api.auth.tokens import Principal, issue_access_token
 from api.db import session_scope
 
 log = logging.getLogger(__name__)
@@ -180,27 +186,70 @@ def logout(request: Request, response: Response) -> Response:
 
 
 # --- admin -----------------------------------------------------------------
+#
+# These endpoints are not authenticated by a token. They take an SSH signature
+# over a single-use nonce, made by a key whose public half is committed in
+# `api/authorized_keys/`. That is what lets a fresh deployment be administered
+# with no secret provisioned into it at all -- and it is what breaks the
+# chicken-and-egg of `create_admin_user`, which cannot require an admin
+# password because its whole job is to set one.
+
+#: Which endpoint a nonce was minted for, checked when it is spent.
+ACTION_GENERATE_CODES = "generate_codes"
+ACTION_CREATE_ADMIN = "create_admin_user"
+_ACTIONS = {ACTION_GENERATE_CODES, ACTION_CREATE_ADMIN}
 
 
-def _admin_principal(
-    request: Request, body_token: Optional[str], settings: AuthSettings
-) -> Principal:
-    """Authenticate an admin from the body's `token` or the bearer header.
+def _authenticate_signature(
+    body: SignedRequest, action: str, settings: AuthSettings, session
+) -> str:
+    """Spend the nonce, check the signature over it, return the signer.
 
-    The token is an ordinary admin access token — there is no second shared
-    secret to leak, and revoking the admin session closes this door too.
+    Order matters: the nonce is consumed *first*, so a wrong signature still
+    burns it. Otherwise an attacker could grind signature attempts against one
+    long-lived nonce.
     """
-    if not settings.auth_required:
-        return LOCAL_ADMIN
-    raw = body_token or bearer_token(request)
-    if not raw:
-        raise HTTPException(status_code=401, detail="Administrator token required.")
-    principal = decode_access_token(raw, settings.signing_secret)
-    if principal is None:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    if not principal.is_admin:
-        raise HTTPException(status_code=403, detail="Administrator access required.")
-    return principal
+    service.consume_challenge(session, body.nonce, action)
+    try:
+        allowed = sshsig.load_allowed_keys(settings.authorized_keys_dir)
+        signer = sshsig.verify(
+            body.nonce.encode("utf-8"),
+            body.signature,
+            allowed,
+            settings.ssh_signature_namespace,
+        )
+    except sshsig.SignatureError as exc:
+        # One generic message: a prober must not learn whether it got the
+        # namespace wrong, the key wrong, or the bytes wrong.
+        log.warning("admin signature rejected for %s: %s", action, exc)
+        raise HTTPException(status_code=401, detail="Signature rejected.") from exc
+    log.info("admin %s authorised by %s (%s)", action, signer.source, signer.comment)
+    return signer.comment or signer.source
+
+
+@admin_router.post(
+    "/challenge", response_model=ChallengeResponse, summary="Get a nonce to sign"
+)
+def challenge(
+    body: ChallengeRequest, settings: AuthSettings = Depends(get_auth_settings)
+) -> ChallengeResponse:
+    """Step one of every admin call: ask for something to sign.
+
+    Deliberately unauthenticated. A nonce is a random number that grants
+    nothing on its own, and requiring credentials to obtain one would recreate
+    the bootstrap problem this design exists to avoid.
+    """
+    if body.action not in _ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown action {body.action!r}.")
+    with session_scope() as session:
+        issued = service.issue_challenge(
+            session, body.action, settings.admin_challenge_ttl_seconds
+        )
+        return ChallengeResponse(
+            nonce=issued.nonce,
+            expires_at=issued.expires_at,
+            namespace=settings.ssh_signature_namespace,
+        )
 
 
 @admin_router.post(
@@ -209,9 +258,7 @@ def _admin_principal(
     summary="Add free access codes",
 )
 def generate_codes(
-    body: GenerateCodesRequest,
-    request: Request,
-    settings: AuthSettings = Depends(get_auth_settings),
+    body: GenerateCodesRequest, settings: AuthSettings = Depends(get_auth_settings)
 ) -> GenerateCodesResponse:
     """Insert codes in the unactivated state, ready to be handed out.
 
@@ -219,9 +266,9 @@ def generate_codes(
     and left exactly as it is, so re-running a batch cannot rearm a code that
     somebody is already using.
     """
-    _admin_principal(request, body.token, settings)
     try:
         with session_scope() as session:
+            _authenticate_signature(body, ACTION_GENERATE_CODES, settings, session)
             inserted, skipped = service.generate_codes(session, body.codes)
             total = session.execute(
                 select(func.count()).select_from(FreeAccessCode)
@@ -237,6 +284,46 @@ def generate_codes(
                 total_codes=total,
                 activated_codes=activated,
                 live_anonymous_sessions=service.count_live_anonymous_sessions(session),
+            )
+    except AuthError as exc:
+        raise _fail(exc) from exc
+
+
+@admin_router.post(
+    "/create_admin_user",
+    response_model=CreateAdminResponse,
+    summary="Create the admin account, or rotate its password",
+)
+def create_admin_user(
+    body: CreateAdminRequest, settings: AuthSettings = Depends(get_auth_settings)
+) -> CreateAdminResponse:
+    """Set the admin password, and always change it.
+
+    There is no way to call this and leave the previous password working: an
+    authenticated call is a rotation. That is the point -- the SSH key is the
+    root of trust, and the password is a derived, disposable credential you can
+    replace at any time from a laptop with no server access.
+
+    The username is always `admin`, enforced here and by a partial unique index
+    that permits one admin row in the table.
+    """
+    if body.username != "admin":
+        raise HTTPException(
+            status_code=400,
+            detail="The admin username is always 'admin'; omit the field or send \"admin\".",
+        )
+    try:
+        with session_scope() as session:
+            _authenticate_signature(body, ACTION_CREATE_ADMIN, settings, session)
+            password, generated, existed, revoked = service.create_or_rotate_admin(
+                session, body.password
+            )
+            return CreateAdminResponse(
+                username="admin",
+                password=password,
+                generated=generated,
+                rotated=existed,
+                revoked_sessions=revoked,
             )
     except AuthError as exc:
         raise _fail(exc) from exc

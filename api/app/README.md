@@ -39,6 +39,10 @@ corpus package's `protected_router` is included before its free `router` for
 the same reason at a smaller scale: registered after, `/corpus/rag_search`
 would be matched by `/corpus/{paper_id}` and rejected as a bad integer.
 
+`/admin/*` is not gated by `require_user`: those routes authenticate
+themselves with an SSH signature rather than a token, so they must stay
+reachable without one — see [`api/auth`](../auth).
+
 The SPA catch-all stays open to everyone even in prod. The login gate is a
 React modal, so `index.html` and `/assets` must load for an anonymous visitor;
 only the JSON routes are gated. When no

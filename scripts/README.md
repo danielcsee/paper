@@ -50,34 +50,31 @@ Projects the Postgres corpus into the Neo4j knowledge graph — see
 Idempotent: every node is merged on its key, so re-run it after importing more
 papers. `--reset` clears data but keeps the constraints.
 
-## `set-admin-password.sh`
+## `admin.sh`
 
-Sets the `admin` account's password. Hashes it locally and writes only the
-hash, so no secret ever lands in a migration or a `.env`.
-
-```bash
-./scripts/set-admin-password.sh          # prompt (does not echo)
-./scripts/set-admin-password.sh --show   # print a hash, write nothing
-```
-
-Until this is run, `admin` has no hash and password login always fails — the
-correct state for a fresh checkout. Changing the password revokes every
-existing admin session.
-
-## `generate-codes.sh`
-
-Mints free access codes and posts them to a running server through
-`POST /admin/generate_codes`.
+Calls the admin endpoints, authenticating with your SSH key. No shared secret
+is involved: the server holds only the public keys committed in
+[`api/authorized_keys/`](../api/authorized_keys), and this script asks for a
+nonce, signs it with `ssh-keygen -Y sign`, and sends the signature.
 
 ```bash
-./scripts/generate-codes.sh 5                          # local API
-./scripts/generate-codes.sh 5 https://sciterm.example  # a deployment
+./scripts/admin.sh codes 5                     # mint 5 free access codes
+./scripts/admin.sh rotate-admin                # generate a new admin password
+./scripts/admin.sh rotate-admin --ask          # choose the password yourself
+./scripts/admin.sh codes 5 https://your.host   # against a deployment
 ```
 
-Prompts for the admin password, trades it for an access token, and prints the
-codes once. Codes are 24 urlsafe characters (~143 bits); the server refuses
-anything under 16, since a code is the only secret in front of the metered
-features.
+Signing goes through `ssh-keygen`, so ssh-agent and passphrase-protected keys
+work; nothing here ever reads your private key. `SCITERM_ADMIN_KEY` overrides
+the default `~/.ssh/id_ed25519`.
+
+`rotate-admin` **always** changes the password — that is what an authenticated
+call means — and prints it once. It also revokes every live admin session, so
+the old credential cannot outlive itself. The password is then usable in the
+app's own sign-in modal.
+
+To authorise another machine, drop its `.pub` into `api/authorized_keys/` and
+commit. To revoke one, delete the file and redeploy.
 
 ## `stop.sh`
 

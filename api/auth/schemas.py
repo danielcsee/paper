@@ -50,11 +50,51 @@ class SessionInfo(BaseModel):
     session_expires_at: Optional[dt.datetime] = None
 
 
-class GenerateCodesRequest(BaseModel):
-    #: An admin access token. May be omitted when an `Authorization: Bearer`
-    #: header carries one instead.
-    token: Optional[str] = None
+class ChallengeRequest(BaseModel):
+    #: Which admin endpoint the nonce is for. A nonce minted for one action is
+    #: refused by the other, so a captured signature cannot be redirected.
+    action: str = Field(..., min_length=1, max_length=32)
+
+
+class ChallengeResponse(BaseModel):
+    nonce: str
+    expires_at: dt.datetime
+    #: The namespace the signature must be made under — pass it to
+    #: `ssh-keygen -Y sign -n <namespace>`.
+    namespace: str
+
+
+class SignedRequest(BaseModel):
+    """Common half of every admin call: the nonce and the signature over it."""
+
+    nonce: str = Field(..., min_length=1, max_length=64)
+    #: An armored SSHSIG blob, as written by `ssh-keygen -Y sign`.
+    signature: str = Field(..., min_length=1, max_length=8192)
+
+
+class GenerateCodesRequest(SignedRequest):
     codes: list[str] = Field(..., min_length=1)
+
+
+class CreateAdminRequest(SignedRequest):
+    #: Always "admin". Accepted so the call is explicit about what it creates,
+    #: and rejected if it is anything else rather than silently ignored.
+    username: str = "admin"
+    #: An empty string asks the server to generate a 32-character password.
+    password: str = Field(..., max_length=256)
+
+
+class CreateAdminResponse(BaseModel):
+    username: str
+    #: Shown exactly once. Nothing stores it in a readable form, so a lost
+    #: password is replaced by calling the endpoint again, not recovered.
+    password: str
+    #: True when the server chose the password.
+    generated: bool
+    #: False on first creation, true when this call rotated an existing one.
+    rotated: bool
+    #: Sessions ended by the rotation.
+    revoked_sessions: int
 
 
 class GenerateCodesResponse(BaseModel):

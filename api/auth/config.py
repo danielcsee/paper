@@ -23,6 +23,8 @@ import secrets
 from functools import lru_cache
 from typing import Any, Literal, Optional
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from api.app.config import REPO_ROOT
@@ -49,6 +51,18 @@ class AuthSettings(BaseSettings):
     refresh_token_ttl_seconds: int = 60 * 60 * 24 * 14
     #: The free-access window, measured from a code's first redemption.
     free_code_window_hours: int = 48
+    # --- admin endpoints ---
+    #: Public keys allowed to call /admin/*, one `*.pub` per file. Committed to
+    #: the repository on purpose: a public key is not a secret, so this needs no
+    #: secret provisioning and rotation is a commit.
+    authorized_keys_dir: Path = REPO_ROOT / "api" / "authorized_keys"
+    #: The namespace a signature must be made under. Bound so a signature this
+    #: key made for anything else -- signing git commits -- cannot be replayed.
+    ssh_signature_namespace: str = "sciterm-admin"
+    #: How long a challenge nonce stays spendable. Long enough to type a key
+    #: passphrase, short enough that a captured nonce is worthless.
+    admin_challenge_ttl_seconds: int = 120
+
     #: Whether the refresh cookie is marked Secure. Defaults to "yes in prod",
     #: which is right for any real deployment. Set false only to demo a prod
     #: build over plain HTTP: a Secure cookie is never sent over http://, so

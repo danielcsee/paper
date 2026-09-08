@@ -79,6 +79,16 @@ class User(Base):
         # primary key, and required: Postgres will only point a foreign key at
         # a uniquely-constrained set of columns.
         UniqueConstraint("id", "is_anonymous", name="uq_users_id_is_anonymous"),
+        # At most one admin, ever. Unique on a column filtered to the rows
+        # where it is true: two admin rows would both index the value `true`
+        # and collide. "Only one admin may exist" is then a fact about the
+        # table rather than a rule the create endpoint has to remember.
+        Index(
+            "uq_users_single_admin",
+            "is_admin",
+            unique=True,
+            postgresql_where=text("is_admin"),
+        ),
         CheckConstraint(
             "NOT (is_admin AND is_anonymous)", name="ck_users_role_exclusive"
         ),
@@ -186,3 +196,29 @@ class AuthSession(Base):
         ),
         Index("ix_auth_sessions_user_id", "user_id"),
     )
+
+
+class AdminChallenge(Base):
+    """A one-shot nonce for signature-authenticated admin calls.
+
+    In Postgres rather than Redis: the auth routes are synchronous and
+    `api.redis_conn` is async-only, and these are admin-rate, not request-rate.
+    Single use is enforced by `DELETE ... RETURNING`, which is atomic — two
+    requests racing the same nonce, exactly one gets the row.
+    """
+
+    __tablename__ = "admin_challenges"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    nonce: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    #: Which endpoint the nonce was issued for. Checked on use, so a signature
+    #: captured for one admin action cannot be redirected at another.
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (Index("ix_admin_challenges_expires_at", "expires_at"),)
