@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 
-from api.app.config import Settings, get_settings
+from api.auth.config import AuthSettings, get_auth_settings
 from api.auth import service
 from api.auth.dependencies import LOCAL_ADMIN, bearer_token, optional_principal
 from api.auth.models import FreeAccessCode
@@ -46,7 +46,7 @@ def _fail(exc: AuthError) -> HTTPException:
     return HTTPException(status_code=exc.status, detail=exc.message)
 
 
-def _set_refresh_cookie(response: Response, token: str, settings: Settings) -> None:
+def _set_refresh_cookie(response: Response, token: str, settings: AuthSettings) -> None:
     response.set_cookie(
         REFRESH_COOKIE,
         token,
@@ -61,7 +61,7 @@ def _set_refresh_cookie(response: Response, token: str, settings: Settings) -> N
 
 
 def _grant_response(
-    grant: Grant, response: Response, settings: Settings
+    grant: Grant, response: Response, settings: AuthSettings
 ) -> TokenResponse:
     access_token, expires = issue_access_token(
         grant.principal, settings.signing_secret, settings.access_token_ttl_seconds
@@ -80,7 +80,7 @@ def _grant_response(
 @router.get("/auth/session", response_model=SessionInfo, summary="Who is signed in")
 def read_session(
     principal: Optional[Principal] = Depends(optional_principal),
-    settings: Settings = Depends(get_settings),
+    settings: AuthSettings = Depends(get_auth_settings),
 ) -> SessionInfo:
     """Always 200, never 401.
 
@@ -103,7 +103,7 @@ def read_session(
 def redeem(
     body: RedeemRequest,
     response: Response,
-    settings: Settings = Depends(get_settings),
+    settings: AuthSettings = Depends(get_auth_settings),
 ) -> TokenResponse:
     """Activate a free access code and open a session on `anonfree`.
 
@@ -124,7 +124,7 @@ def redeem(
 def login(
     body: LoginRequest,
     response: Response,
-    settings: Settings = Depends(get_settings),
+    settings: AuthSettings = Depends(get_auth_settings),
 ) -> TokenResponse:
     """Password sign-in. In practice this is the admin account: `anonfree` is
     forbidden a password hash by a table constraint."""
@@ -142,7 +142,7 @@ def login(
 def refresh(
     request: Request,
     response: Response,
-    settings: Settings = Depends(get_settings),
+    settings: AuthSettings = Depends(get_auth_settings),
 ) -> TokenResponse:
     """Exchange the refresh cookie for a new access token, rotating the cookie.
 
@@ -183,7 +183,7 @@ def logout(request: Request, response: Response) -> Response:
 
 
 def _admin_principal(
-    request: Request, body_token: Optional[str], settings: Settings
+    request: Request, body_token: Optional[str], settings: AuthSettings
 ) -> Principal:
     """Authenticate an admin from the body's `token` or the bearer header.
 
@@ -211,7 +211,7 @@ def _admin_principal(
 def generate_codes(
     body: GenerateCodesRequest,
     request: Request,
-    settings: Settings = Depends(get_settings),
+    settings: AuthSettings = Depends(get_auth_settings),
 ) -> GenerateCodesResponse:
     """Insert codes in the unactivated state, ready to be handed out.
 

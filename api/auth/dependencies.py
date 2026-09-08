@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, Request
 
-from api.app.config import Settings, get_settings
+from api.auth.config import AuthSettings, get_auth_settings
 from api.auth.models import ADMIN_USERNAME
 from api.auth.tokens import Principal, decode_access_token
 
@@ -35,7 +35,7 @@ def bearer_token(request: Request) -> Optional[str]:
 
 
 def optional_principal(
-    request: Request, settings: Settings = Depends(get_settings)
+    request: Request, settings: AuthSettings = Depends(get_auth_settings)
 ) -> Optional[Principal]:
     """Whoever is calling, or None. Never raises — for routes that are open but
     behave differently for a signed-in caller."""

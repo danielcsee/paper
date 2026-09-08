@@ -16,9 +16,16 @@ supply one yourself.
 
 `sciterm_env` is the one runtime switch between local and prod. `local` (the
 default) leaves the app exactly as it behaved before auth existed; `prod` gates
-the metered routes and **refuses to start without `JWT_SECRET`**, rather than
-minting tokens anyone could forge. One switch rather than a build flag, so the
-same bundle and the same image serve both — see [`api/auth`](../auth).
+the metered routes. One switch rather than a build flag, so the same bundle and
+the same image serve both — see [`api/auth`](../auth).
+
+**`Settings` deliberately holds no auth fields.** The signing key and token
+policy live in [`api/auth/config.py`](../auth/config.py) as a separate
+`AuthSettings`, constructed lazily. Both processes read this module, but only
+the API ever constructs `AuthSettings` — so the Celery worker runs with no
+`JWT_SECRET` in its environment, and the prod check that refuses to boot
+without one constrains the API alone. The worker parses untrusted PubTator
+documents; it should not be able to mint admin tokens.
 
 **`main.py`** — builds the app. The `lifespan` handler creates one pooled
 `httpx.AsyncClient` for the process and constructs the `PubTatorClient` and

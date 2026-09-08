@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.app.config import get_settings
 from api.auth import admin_router, router as auth_router
+from api.auth.config import get_auth_settings
 from api.cache import DocumentCache
 from api.redis_conn import close_client as close_redis
 from api.corpus import protected_router as corpus_protected_router
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
     log.info(
         "sciterm starting in %s (auth %s)",
         settings.sciterm_env,
-        "required" if settings.auth_required else "off",
+        "required" if get_auth_settings().auth_required else "off",
     )
     try:
         yield
