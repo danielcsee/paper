@@ -59,6 +59,18 @@ class AuthSettings(BaseSettings):
     #: The namespace a signature must be made under. Bound so a signature this
     #: key made for anything else -- signing git commits -- cannot be replayed.
     ssh_signature_namespace: str = "sciterm-admin"
+    # --- throttling ---
+    #: Password verifications allowed per window, per address and per username.
+    #: Each one costs ~200 ms of CPU, so 10 caps a single key at ~2 s of work
+    #: per window however hard it is pushed.
+    login_attempts_per_window: int = 10
+    #: Access-code attempts per window, per address. Higher than the login
+    #: limit: redemption is cheap, and codes are ~143 bits, so this is about
+    #: keeping the endpoint quiet rather than about guessability.
+    redeem_attempts_per_window: int = 20
+    #: The window both limits are measured over.
+    throttle_window_seconds: int = 300
+
     #: How long a challenge nonce stays spendable. Long enough to type a key
     #: passphrase, short enough that a captured nonce is worthless.
     admin_challenge_ttl_seconds: int = 120
