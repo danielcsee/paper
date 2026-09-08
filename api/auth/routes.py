@@ -9,6 +9,7 @@ ms in scrypt, which must not happen on the loop either.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -34,6 +35,7 @@ from api.auth.schemas import (
 )
 from api.auth.service import AuthError, Grant
 from api.auth import sshsig
+from api.auth.throttle import SlidingWindow
 from api.auth.tokens import Principal, issue_access_token
 from api.db import session_scope
 
@@ -46,6 +48,45 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 #: logout routes and nowhere else — not to /corpus, not to /import.
 REFRESH_COOKIE = "sciterm_refresh"
 REFRESH_COOKIE_PATH = "/auth"
+
+
+@lru_cache(maxsize=1)
+def _limits() -> tuple:
+    """The two limiters, built once per process from settings.
+
+    Module state rather than a dependency: the point is to cap this process's
+    own work, so the counters must outlive any single request. See
+    `api.auth.throttle` for why they are not shared across tasks.
+    """
+    settings = get_auth_settings()
+    return (
+        SlidingWindow(settings.login_attempts_per_window, settings.throttle_window_seconds),
+        SlidingWindow(settings.redeem_attempts_per_window, settings.throttle_window_seconds),
+    )
+
+
+def _client_key(request: Request) -> str:
+    """The caller's address, as uvicorn understands it.
+
+    Behind a load balancer this is only the real client when uvicorn runs with
+    `--proxy-headers`; without it every request looks like it came from the
+    balancer and the address limit degrades into a global one. The username
+    limit on /auth/login is what still bounds the CPU in that case.
+    """
+    client = request.client
+    return client.host if client else "unknown"
+
+
+def _throttle(window: SlidingWindow, *keys: str) -> None:
+    for key in keys:
+        wait = window.retry_after(key)
+        if wait is None:
+            continue
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Try again shortly.",
+            headers={"Retry-After": str(int(wait) + 1)},
+        )
 
 
 def _fail(exc: AuthError) -> HTTPException:
@@ -108,6 +149,7 @@ def read_session(
 )
 def redeem(
     body: RedeemRequest,
+    request: Request,
     response: Response,
     settings: AuthSettings = Depends(get_auth_settings),
 ) -> TokenResponse:
@@ -116,6 +158,7 @@ def redeem(
     The code's clock starts on first redemption and is never restarted, so the
     window is 48 hours from first use however many times it is entered.
     """
+    _throttle(_limits()[1], f"ip:{_client_key(request)}")
     try:
         with session_scope() as session:
             grant = service.redeem_code(
@@ -129,11 +172,20 @@ def redeem(
 @router.post("/auth/login", response_model=TokenResponse, summary="Sign in with a password")
 def login(
     body: LoginRequest,
+    request: Request,
     response: Response,
     settings: AuthSettings = Depends(get_auth_settings),
 ) -> TokenResponse:
     """Password sign-in. In practice this is the admin account: `anonfree` is
     forbidden a password hash by a table constraint."""
+    # Both keys, because they stop different attacks: the address limit stops
+    # one source, the username limit caps PBKDF2 work however many sources it
+    # is spread across.
+    _throttle(
+        _limits()[0],
+        f"ip:{_client_key(request)}",
+        f"user:{body.username.strip().lower()}",
+    )
     try:
         with session_scope() as session:
             grant = service.login(
@@ -231,7 +283,9 @@ def _authenticate_signature(
     "/challenge", response_model=ChallengeResponse, summary="Get a nonce to sign"
 )
 def challenge(
-    body: ChallengeRequest, settings: AuthSettings = Depends(get_auth_settings)
+    body: ChallengeRequest,
+    request: Request,
+    settings: AuthSettings = Depends(get_auth_settings),
 ) -> ChallengeResponse:
     """Step one of every admin call: ask for something to sign.
 
@@ -239,6 +293,7 @@ def challenge(
     nothing on its own, and requiring credentials to obtain one would recreate
     the bootstrap problem this design exists to avoid.
     """
+    _throttle(_limits()[1], f"challenge:{_client_key(request)}")
     if body.action not in _ACTIONS:
         raise HTTPException(status_code=400, detail=f"Unknown action {body.action!r}.")
     with session_scope() as session:
@@ -315,6 +370,7 @@ def create_admin_user(
     try:
         with session_scope() as session:
             _authenticate_signature(body, ACTION_CREATE_ADMIN, settings, session)
+
             password, generated, existed, revoked = service.create_or_rotate_admin(
                 session, body.password
             )

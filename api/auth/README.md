@@ -48,6 +48,16 @@ committed in [`api/authorized_keys/`](../authorized_keys). Read the module
 docstring before touching it: three checks there are load-bearing and all three
 are easy to leave out.
 
+**`throttle.py`** — an in-process sliding-window limiter on `/auth/login`,
+`/auth/redeem` and `/admin/challenge`. Login is the one that matters: verifying
+a password costs ~200 ms of PBKDF2, paid before the caller has proved anything,
+so an unthrottled endpoint is a CPU denial-of-service against the one username
+that exists. Login is keyed on both the client address *and* the username — the
+username key is what caps the work when attempts arrive from many addresses,
+and the address key only means anything when uvicorn runs with
+`--proxy-headers`. In-process rather than shared, so it adds no dependency and
+no "what if Redis is down" policy; see the module docstring for that trade.
+
 **`passwords.py`** — PBKDF2-HMAC-SHA256. Not scrypt: `hashlib.scrypt` is absent
 unless CPython was linked against an OpenSSL that offers it, and it is missing
 from the Python in `.venv`.

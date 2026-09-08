@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     #: the API process -- see `api.auth.config`. One runtime switch rather than
     #: a build flag, so the same UI bundle and the same image serve both.
     sciterm_env: Literal["local", "prod"] = "local"
+    #: Stamped into the image at build time and echoed by /health, so a deploy
+    #: can be confirmed from outside without shelling into anything.
+    sciterm_version: str = "unknown"
 
     # Auth settings are NOT here. The signing key and token policy live in
     # `api.auth.config.AuthSettings`, so the Celery worker -- which parses

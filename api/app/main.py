@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.app.config import get_settings
+from api.app.health import router as health_router
 from api.auth import admin_router, router as auth_router
 from api.auth.config import get_auth_settings
 from api.cache import DocumentCache
@@ -67,6 +68,7 @@ app = FastAPI(title="sciterm", lifespan=lifespan)
 
 # Routers first: StaticFiles below is mounted at "/" and would otherwise
 # swallow every path, /pb included.
+app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(pb_router)

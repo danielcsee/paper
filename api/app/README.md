@@ -27,6 +27,16 @@ the API ever constructs `AuthSettings` — so the Celery worker runs with no
 without one constrains the API alone. The worker parses untrusted PubTator
 documents; it should not be able to mint admin tokens.
 
+**`health.py`** — `/health` and `/health/ready`, split deliberately.
+`/health` is liveness and touches nothing, because it is what a load balancer
+polls: if it checked Postgres, a database outage would fail every task at once,
+drain the whole target group, and replace the app's error with the balancer's
+503. `/health/ready` does check Postgres and the Celery broker and returns 503
+naming the failure — for use after a deploy or from an alarm, never as the
+balancer's health check. Both report the environment, the build's
+`SCITERM_VERSION`, and uptime; a resetting uptime is a crash loop, which is
+otherwise easy to mistake for a slow deploy.
+
 **`main.py`** — builds the app. The `lifespan` handler creates one pooled
 `httpx.AsyncClient` for the process and constructs the `PubTatorClient` and
 `PmcClient` onto `app.state`, closing the client on shutdown. Sharing one pool
