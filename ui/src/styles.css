@@ -1208,3 +1208,25 @@ body {
    click is what opens the modal — so it must not look like a dead control. */
 .composer-input[readonly],
 .search-input[readonly] { cursor: pointer; }
+
+/* The account/code toggle inside the unlock modal. A link in weight, a button
+   in behaviour — it switches a form rather than navigating. */
+.code-switch {
+  margin: 12px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.code-switch:hover:not(:disabled) { filter: brightness(1.15); }
+.code-switch:disabled { opacity: 0.55; cursor: default; }
+
+/* Second field in the account form; the first keeps the form's own top edge. */
+.code-label-spaced { margin-top: 12px; }

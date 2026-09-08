@@ -10,18 +10,21 @@ from __future__ import annotations
 import datetime as dt
 import logging
 
-from sqlalchemy import select, update
+import secrets
+
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from api.auth.models import (
     ADMIN_USERNAME,
     ANON_USERNAME,
+    AdminChallenge,
     AuthSession,
     FreeAccessCode,
     User,
 )
-from api.auth.passwords import verify_password
+from api.auth.passwords import hash_password, verify_password
 from api.auth.tokens import Principal, hash_refresh_token, new_refresh_token
 
 log = logging.getLogger(__name__)
@@ -32,6 +35,14 @@ MIN_CODE_LENGTH = 16
 MAX_CODE_LENGTH = 128
 #: One request may not create more than this many codes.
 MAX_CODES_PER_REQUEST = 200
+
+#: Length of an auto-generated admin password. token_urlsafe(24) is exactly 32
+#: characters and carries 192 bits, so the "32 characters" is a real 32, not a
+#: truncation of something longer.
+GENERATED_PASSWORD_BYTES = 24
+#: A supplied admin password shorter than this is refused. Not in the spec, but
+#: this credential unlocks every metered feature and the admin session.
+MIN_ADMIN_PASSWORD_LENGTH = 12
 
 
 class AuthError(Exception):
@@ -313,3 +324,98 @@ def count_live_anonymous_sessions(session: Session) -> int:
 
 def admin_account(session: Session) -> User:
     return _require_account(session, ADMIN_USERNAME)
+
+
+# --- signature challenges --------------------------------------------------
+
+
+def issue_challenge(session: Session, action: str, ttl_seconds: int) -> AdminChallenge:
+    """Mint a single-use nonce for `action`.
+
+    Expired rows are swept here rather than on a timer: the table only grows
+    when an admin call is attempted, so the cheapest place to keep it small is
+    the next attempt.
+    """
+    now = utcnow()
+    session.execute(delete(AdminChallenge).where(AdminChallenge.expires_at <= now))
+    challenge = AdminChallenge(
+        nonce=secrets.token_urlsafe(32),
+        action=action,
+        expires_at=now + dt.timedelta(seconds=ttl_seconds),
+    )
+    session.add(challenge)
+    session.flush()
+    return challenge
+
+
+def consume_challenge(session: Session, nonce: str, action: str) -> None:
+    """Spend a nonce, or raise.
+
+    `DELETE ... RETURNING` is what makes it single use: the delete and the
+    check are one statement, so two requests racing the same nonce cannot both
+    see it as unspent.
+    """
+    row = session.execute(
+        delete(AdminChallenge)
+        .where(
+            AdminChallenge.nonce == nonce,
+            AdminChallenge.action == action,
+            AdminChallenge.expires_at > utcnow(),
+        )
+        .returning(AdminChallenge.id)
+    ).first()
+    if row is None:
+        raise AuthError(401, "Challenge is unknown, expired, or already used.")
+
+
+# --- the admin account -----------------------------------------------------
+
+
+def create_or_rotate_admin(
+    session: Session, password: str
+) -> tuple[str, bool, bool, int]:
+    """Create the admin account, or rotate its password.
+
+    Returns `(password, generated, existed, revoked)`. The password comes back so the
+    caller can show it once; it is never stored in a readable form and there is
+    no way to ask for it again.
+
+    An empty string means "choose one for me". Any authenticated call rotates,
+    by design: there is no way to invoke this and leave the old password
+    working, so a leaked password is fixed by calling it again.
+    """
+    generated = password == ""
+    if generated:
+        password = secrets.token_urlsafe(GENERATED_PASSWORD_BYTES)
+    elif len(password) < MIN_ADMIN_PASSWORD_LENGTH:
+        raise AuthError(
+            400,
+            f"An admin password must be at least {MIN_ADMIN_PASSWORD_LENGTH} "
+            "characters, or \"\" to have one generated.",
+        )
+
+    user = get_user(session, ADMIN_USERNAME)
+    existed = user is not None
+    if user is None:
+        # uq_users_single_admin makes a second admin row impossible, so this
+        # cannot quietly create a rival account if the username ever changes.
+        user = User(username=ADMIN_USERNAME, is_admin=True, is_anonymous=False)
+        session.add(user)
+    user.password_hash = hash_password(password)
+    user.disabled_at = None
+    session.flush()
+
+    # Every session opened with the old password is now a key that outlived the
+    # credential it was issued for.
+    revoked = session.execute(
+        update(AuthSession)
+        .where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+    ).rowcount
+    log.info(
+        "admin password %s (%s); %d session(s) revoked",
+        "rotated" if existed else "set",
+        "generated" if generated else "supplied",
+        revoked,
+    )
+    return password, generated, existed, revoked

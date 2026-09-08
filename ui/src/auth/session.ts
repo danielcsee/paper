@@ -159,6 +159,20 @@ export async function redeemCode(code: string): Promise<void> {
   acceptGrant((await response.json()) as TokenResponse)
 }
 
+export async function login(username: string, password: string): Promise<void> {
+  const response = await fetch('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!response.ok) {
+    throw new AuthRequiredError(
+      await readError(response, `Could not sign in (${response.status}).`),
+    )
+  }
+  acceptGrant((await response.json()) as TokenResponse)
+}
+
 export async function logout(): Promise<void> {
   try {
     await fetch('/auth/logout', { method: 'POST' })

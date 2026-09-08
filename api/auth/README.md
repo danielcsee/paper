@@ -40,9 +40,13 @@ level in `pb_client`, `pm_client`, `ingestion` and the corpus package's
 `protected_router`, so a route added to one of those is gated the day it is
 written.
 
-**`routes.py`** — `/auth/*` and `/admin/generate_codes`. The admin endpoint
-takes an ordinary admin access token, in the body or as a bearer header; there
-is no second shared secret to leak.
+**`routes.py`** — `/auth/*` and `/admin/*`. See "Admin endpoints" below;
+they do not use tokens at all.
+
+**`sshsig.py`** — verifies OpenSSH SSHSIG signatures against the public keys
+committed in [`api/authorized_keys/`](../authorized_keys). Read the module
+docstring before touching it: three checks there are load-bearing and all three
+are easy to leave out.
 
 **`passwords.py`** — PBKDF2-HMAC-SHA256. Not scrypt: `hashlib.scrypt` is absent
 unless CPython was linked against an OpenSSL that offers it, and it is missing
@@ -69,9 +73,37 @@ alone.
 admin, so development is exactly as it was before auth existed. `prod` requires
 `JWT_SECRET` and refuses to start without one. See `.env.example`.
 
-Set the admin password with `scripts/set-admin-password.sh`; issue codes with
-`scripts/generate-codes.sh`.
+Issue codes and rotate the admin password with `scripts/admin.sh`.
+
+## Admin endpoints
+
+`/admin/generate_codes` and `/admin/create_admin_user` are **not** token
+authenticated. They take an SSH signature over a single-use nonce, made by a
+key whose public half is committed to this repository:
+
+```
+POST /admin/challenge  {action}            -> {nonce, namespace}
+ssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n sciterm-admin <nonce file>
+POST /admin/<action>   {nonce, signature, ...}
+```
+
+Why not an admin token: `create_admin_user` sets the admin password, so it
+cannot require one — that is the bootstrap problem. A committed public key
+solves it without putting any secret in the repository, since a public key is
+not a secret, and makes rotation a commit. `scripts/admin.sh` does both steps.
+
+`create_admin_user` always rotates. There is no way to call it and leave the
+old password working, so a leaked admin password is fixed by calling it again.
+An empty `password` has the server generate a 32-character one and return it
+once. The username is always `admin`, enforced both in the route and by
+`uq_users_single_admin`, a partial unique index permitting one admin row.
+
+Nonces live in `admin_challenges` and are spent with `DELETE ... RETURNING`, so
+single use is atomic. The nonce is consumed *before* the signature is checked:
+a wrong signature still burns it, which is what stops an attacker grinding
+attempts against one long-lived nonce.
 
 ## Dependencies
 
-`fastapi`, `PyJWT`, `SQLAlchemy`, and `api.db` for the session factory.
+`fastapi`, `PyJWT`, `cryptography` (Ed25519 verification), `SQLAlchemy`, and
+`api.db` for the session factory.

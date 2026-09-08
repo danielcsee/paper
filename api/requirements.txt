@@ -17,3 +17,5 @@ redis>=5,<7
 sentence-transformers>=3.0,<6
 # Auth: signs the short-lived access tokens.
 PyJWT>=2.9,<3
+# Admin auth: verifies SSH signatures against api/authorized_keys/.
+cryptography>=43,<47
