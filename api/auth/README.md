@@ -57,6 +57,14 @@ compute.
 
 ## Configuration
 
+**`config.py`** — `AuthSettings`: the signing key, token lifetimes and cookie
+policy, kept out of `api.app.config` on purpose. The Celery worker imports this
+package transitively (the client packages export their routers), so the class
+is constructed lazily through `get_auth_settings()`: importing the module must
+never demand a secret, only calling it does. The upshot is that the worker runs
+with no `JWT_SECRET` at all, and the prod fail-closed check binds the API
+alone.
+
 `SCITERM_ENV=local` (the default) switches all of this off and yields a local
 admin, so development is exactly as it was before auth existed. `prod` requires
 `JWT_SECRET` and refuses to start without one. See `.env.example`.
