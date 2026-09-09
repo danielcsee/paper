@@ -19,12 +19,14 @@ variable "domain_name" {
   EOT
 }
 
-variable "hosted_zone_name" {
+variable "cloudflare_zone_id" {
   type        = string
-  description = <<-EOT
-    The zone to create, e.g. "example.com". Terraform creates it; you delegate
-    to it by copying the name servers this stack outputs to your registrar.
-  EOT
+  description = "Cloudflare Zone ID for the domain containing domain_name. This identifier is not an API credential."
+
+  validation {
+    condition     = can(regex("^[0-9a-f]{32}$", var.cloudflare_zone_id))
+    error_message = "cloudflare_zone_id must be the 32-character hexadecimal Zone ID shown in Cloudflare."
+  }
 }
 
 variable "image_tag" {

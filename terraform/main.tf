@@ -9,6 +9,10 @@ provider "aws" {
   }
 }
 
+# Authentication is read from CLOUDFLARE_API_TOKEN. Keeping the token out of
+# Terraform inputs prevents it from being written to configuration or state.
+provider "cloudflare" {}
+
 data "aws_availability_zones" "available" {
   state = "available"
 }

@@ -1,14 +1,4 @@
-# DNS and TLS.
-#
-# Your domain is registered elsewhere, so Terraform creates the zone and you
-# delegate to it. That makes the first apply two-stage -- see the README: the
-# certificate cannot validate until the registrar points at these name servers,
-# and `aws_acm_certificate_validation` will sit and wait until it does.
-
-resource "aws_route53_zone" "main" {
-  name    = var.hosted_zone_name
-  comment = "Managed by Terraform for ${local.name}"
-}
+# DNS is authoritative in Cloudflare; TLS terminates at the AWS ALB.
 
 resource "aws_acm_certificate" "main" {
   domain_name       = var.domain_name
@@ -19,7 +9,7 @@ resource "aws_acm_certificate" "main" {
   }
 }
 
-resource "aws_route53_record" "cert_validation" {
+resource "cloudflare_dns_record" "cert_validation" {
   for_each = {
     for option in aws_acm_certificate.main.domain_validation_options :
     option.domain_name => {
@@ -29,17 +19,18 @@ resource "aws_route53_record" "cert_validation" {
     }
   }
 
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = each.value.name
-  type            = each.value.type
-  records         = [each.value.record]
-  ttl             = 60
-  allow_overwrite = true
+  zone_id = var.cloudflare_zone_id
+  name    = trimsuffix(each.value.name, ".")
+  type    = each.value.type
+  content = trimsuffix(each.value.record, ".")
+  ttl     = 60
+  proxied = false
+  comment = "AWS ACM validation for ${var.domain_name}; managed by Terraform"
 }
 
 resource "aws_acm_certificate_validation" "main" {
   certificate_arn         = aws_acm_certificate.main.arn
-  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+  validation_record_fqdns = [for record in cloudflare_dns_record.cert_validation : record.name]
 }
 
 # --- load balancer ---------------------------------------------------------
@@ -114,14 +105,12 @@ resource "aws_lb_listener" "http_redirect" {
   }
 }
 
-resource "aws_route53_record" "app" {
-  zone_id = aws_route53_zone.main.zone_id
+resource "cloudflare_dns_record" "app" {
+  zone_id = var.cloudflare_zone_id
   name    = var.domain_name
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
-  }
+  type    = "CNAME"
+  content = aws_lb.main.dns_name
+  ttl     = 60
+  proxied = false
+  comment = "${local.name} AWS application load balancer; managed by Terraform"
 }

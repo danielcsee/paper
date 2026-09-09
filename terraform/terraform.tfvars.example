@@ -2,15 +2,15 @@
 # domain, which is not secret, but nothing in it belongs in a public repo by
 # default.
 
-domain_name      = "sciterm.example.com"
-hosted_zone_name = "example.com"
+domain_name        = "sciterm.example.com"
+cloudflare_zone_id = "00000000000000000000000000000000"
 
 # Never "latest". A rollback should be a task-definition revision pointing at a
 # tag that still exists, not a rebuild you hope reproduces.
 image_tag = "a1b2c3d"
 
-# Account-wide budget notifications. At $300 of actual monthly spend, the
-# shutdown automation scales both ECS services to zero and stops RDS + Neo4j.
+# Account-wide budget notifications. At 100% of the configured monthly budget,
+# the shutdown automation scales both ECS services to zero and stops RDS + Neo4j.
 budget_alert_email  = "you@example.com"
 # monthly_budget_limit = 300
 

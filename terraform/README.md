@@ -18,14 +18,14 @@ deprecated the DynamoDB argument, so `required_version` is `>= 1.10`.
 | `network.tf` | VPC, subnets, NAT, and every security group. |
 | `rds.tf` `elasticache.tf` `neo4j.tf` | The three datastores. |
 | `ecs.tf` | Cluster, API and worker services, and the migration task. |
-| `alb.tf` | Route 53 zone, ACM certificate, load balancer, listeners. |
+| `alb.tf` | Cloudflare DNS, ACM certificate, load balancer, listeners. |
 | `iam.tf` `secrets.tf` `waf.tf` `ecr.tf` | Supporting resources. |
 
 ## First apply
 
-Your domain is registered elsewhere, so this is a two-stage apply: the
-certificate cannot validate until the registrar delegates to the zone
-Terraform creates, and `aws_acm_certificate_validation` waits until it does.
+Cloudflare remains the authoritative DNS provider. Terraform uses a narrowly
+scoped API token to create the app CNAME and AWS ACM validation CNAME, so DNS
+and certificate validation complete during the normal apply.
 
 ```bash
 cd terraform/bootstrap && terraform init && terraform apply   # state bucket
@@ -34,13 +34,19 @@ cd .. && terraform init
 
 cp terraform.tfvars.example terraform.tfvars   # fill in domain and image tag
 
-# 1. the zone, so you have name servers to delegate
-terraform apply -target=aws_route53_zone.main
-terraform output name_servers                  # paste these at your registrar
+# Create a Cloudflare API token with DNS Edit access to this zone. Export it;
+# never put the token in a .tf or .tfvars file.
+export CLOUDFLARE_API_TOKEN="replace-with-your-token"
 
-# 2. wait for delegation to propagate, then everything else
 terraform apply
 ```
+
+Set `domain_name` to the full hostname (for example, `app.example.com`) and
+copy the Zone ID from the domain's Cloudflare Overview page into
+`cloudflare_zone_id`. The generated records are DNS-only: TLS and WAF remain
+on AWS, and the existing WAF source-IP rate limit continues to see visitors'
+real IP addresses. If a DNS record with the same app hostname already exists,
+delete it or import it before applying so Terraform does not collide with it.
 
 Then the parts Terraform deliberately does not do:
 

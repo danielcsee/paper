@@ -1,8 +1,3 @@
-output "name_servers" {
-  description = "Copy these to your registrar to delegate the zone. The certificate cannot validate until you do."
-  value       = aws_route53_zone.main.name_servers
-}
-
 output "app_url" {
   value = "https://${var.domain_name}"
 }

@@ -4,9 +4,10 @@ terraform {
   required_version = ">= 1.10"
 
   required_providers {
-    aws    = { source = "hashicorp/aws", version = "~> 5.70" }
-    archive = { source = "hashicorp/archive", version = "~> 2.7" }
-    random = { source = "hashicorp/random", version = "~> 3.6" }
+    aws        = { source = "hashicorp/aws", version = "~> 5.70" }
+    archive    = { source = "hashicorp/archive", version = "~> 2.7" }
+    cloudflare = { source = "cloudflare/cloudflare", version = "~> 5.24" }
+    random     = { source = "hashicorp/random", version = "~> 3.6" }
   }
 
   # Created by ./bootstrap, which runs once with local state. Fill in the
