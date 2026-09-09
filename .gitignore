@@ -19,3 +19,12 @@ papers/
 
 
 .DS_Store
+
+# terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+# .terraform.lock.hcl is deliberately NOT ignored: it pins provider versions,
+# so committing it is what makes two machines resolve the same ones.
+crash.log
