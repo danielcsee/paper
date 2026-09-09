@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and fill in. That file is gitignored: it names your
+# domain, which is not secret, but nothing in it belongs in a public repo by
+# default.
+
+domain_name      = "sciterm.example.com"
+hosted_zone_name = "example.com"
+
+# Never "latest". A rollback should be a task-definition revision pointing at a
+# tag that still exists, not a rebuild you hope reproduces.
+image_tag = "a1b2c3d"
+
+# region  = "us-east-1"
+# project = "sciterm"
+
+# Set false once the database holds anything you would miss: it turns on
+# deletion protection and takes a final snapshot on destroy.
+# destroy_friendly = true
