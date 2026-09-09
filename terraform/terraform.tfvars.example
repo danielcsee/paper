@@ -9,6 +9,11 @@ hosted_zone_name = "example.com"
 # tag that still exists, not a rebuild you hope reproduces.
 image_tag = "a1b2c3d"
 
+# Account-wide budget notifications. At $300 of actual monthly spend, the
+# shutdown automation scales both ECS services to zero and stops RDS + Neo4j.
+budget_alert_email  = "you@example.com"
+# monthly_budget_limit = 300
+
 # region  = "us-east-1"
 # project = "sciterm"
 

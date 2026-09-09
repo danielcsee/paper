@@ -120,3 +120,26 @@ variable "auth_rate_limit_per_5min" {
     AWS enforces a floor of 100.
   EOT
 }
+
+# --- cost guardrail -------------------------------------------------------
+
+variable "monthly_budget_limit" {
+  type        = number
+  default     = 200
+  description = "Account-wide monthly USD budget. Crossing 100% latches the application off."
+
+  validation {
+    condition     = var.monthly_budget_limit > 0
+    error_message = "monthly_budget_limit must be greater than zero."
+  }
+}
+
+variable "budget_alert_email" {
+  type        = string
+  description = "Email address for warnings and the automatic shutdown notification."
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.budget_alert_email))
+    error_message = "budget_alert_email must be a valid email address."
+  }
+}
