@@ -8,8 +8,6 @@ Ingest pipeline: Celery
 Datastore (for papers): PostgreSQL
 Knowledge graph: Neo4j
 
-Authentication is purposefully excluded: this is a local-only project.
-
 # Communication Style
 
 In all communication, format your responses to this style as much as possible: A 2-3 sentence opinion, followed by a list of titles with bullet points explaining your reasoning, concluding with a 2-4 sentence summary. Example:
