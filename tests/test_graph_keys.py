@@ -85,3 +85,43 @@ def test_author_key_handles_nullable_columns(
 ) -> None:
     """Both `paper_authors` name columns are nullable; None means unkeyable."""
     assert author_key(surname, given) == expected
+
+
+def test_entity_key_contract() -> None:
+    """Both derivation paths in one coverage context.
+
+    Paired with the focused tests above: those isolate a failure to one input,
+    this one is the stable target for Testledger's symbol-to-test link.
+    """
+    cases: list[tuple[str, str, str]] = [
+        ("MESH:D001943", "ncbi_mesh", "MESH:D001943"),
+        ("  CVCL:0031  ", "cvcl", "CVCL:0031"),
+        ("672", "ncbi_gene", "ncbi_gene:672"),
+        ("9606", " ncbi_taxonomy ", "ncbi_taxonomy:9606"),
+    ]
+
+    for identifier, database, expected in cases:
+        assert entity_key(identifier, database) == expected, f"{identifier!r}/{database!r}"
+
+
+def test_entity_labels_contract() -> None:
+    """Legal and illegal label shapes in one coverage context."""
+    for legal in ("Gene", "Disease", "X_9"):
+        assert entity_labels(legal) == (ENTITY_LABEL, legal)
+    for illegal in (None, "", "9606", "Drop;MATCH (n) DETACH DELETE n"):
+        assert entity_labels(illegal) == (ENTITY_LABEL, UNKNOWN_ENTITY_LABEL), illegal
+
+
+def test_author_key_contract() -> None:
+    """Both name halves, each alone, neither, and the normalisation rules."""
+    cases: list[tuple[Optional[str], Optional[str], Optional[str]]] = [
+        ("German", "Alexander J.", "german, alexander j."),
+        ("  GERMAN ", "Alexander   J.", "german, alexander j."),
+        ("German", None, "german"),
+        (None, "Alexander", "alexander"),
+        (None, None, None),
+        ("   ", "", None),
+    ]
+
+    for surname, given, expected in cases:
+        assert author_key(surname, given) == expected, f"{surname!r}/{given!r}"

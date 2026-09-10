@@ -127,3 +127,38 @@ def test_decode_rejects_token_missing_required_claims() -> None:
 @pytest.mark.parametrize("token", ["", "not-a-jwt", "a.b.c", "..", "null"])
 def test_decode_rejects_malformed_input_without_raising(token: str) -> None:
     assert decode_access_token(token, _SECRET) is None
+
+
+def test_decode_access_token_contract(principal: Principal) -> None:
+    """The accept path and every rejection path in one coverage context.
+
+    Split across separate tests, no single one reaches enough of
+    `decode_access_token` to satisfy Testledger's per-test coverage threshold.
+    """
+    valid, _ = issue_access_token(principal, _SECRET, ttl_seconds=900)
+    expired, _ = issue_access_token(principal, _SECRET, ttl_seconds=-10)
+    now = dt.datetime.now(dt.timezone.utc)
+    foreign = jwt.encode(
+        {
+            "iss": "not-sciterm",
+            "sub": "7",
+            "name": "x",
+            "adm": False,
+            "sid": None,
+            "iat": int(now.timestamp()),
+            "exp": int((now + dt.timedelta(minutes=15)).timestamp()),
+        },
+        _SECRET,
+        algorithm="HS256",
+    )
+    incomplete = jwt.encode(
+        {"iss": "sciterm", "sub": "7", "iat": int(now.timestamp()),
+         "exp": int((now + dt.timedelta(minutes=15)).timestamp())},
+        _SECRET,
+        algorithm="HS256",
+    )
+
+    assert decode_access_token(valid, _SECRET) == principal
+    for rejected in (expired, foreign, incomplete, "", "not-a-jwt", "a.b.c"):
+        assert decode_access_token(rejected, _SECRET) is None, rejected
+    assert decode_access_token(valid, "a-different-secret") is None
