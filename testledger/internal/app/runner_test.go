@@ -1,71 +1,56 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/danielcsee/sciterm/testledger/internal/model"
 )
 
-func TestAttributeCoverageUsesPerTestContextsAndOwnLines(t *testing.T) {
+func TestGoRunnerPersistsStructuredResults(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "coverage.json")
-	contents := `{
-  "files": {
-    "pkg/example.py": {
-      "executed_lines": [1, 2, 3, 5],
-      "missing_lines": [4, 6],
-      "contexts": {
-        "1": [""],
-        "2": ["tests/test_example.py::test_one"],
-        "3": ["tests/test_example.py::test_one"],
-        "5": ["tests/test_example.py::test_nested"]
-      }
-    }
-  }
-}`
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+	files := map[string]string{
+		"go.mod":       "module example.test/sample\n\ngo 1.22\n",
+		"math.go":      "package sample\nfunc Add(a,b int) int { return a+b }\n",
+		"math_test.go": "package sample\nimport \"testing\"\nfunc TestAdd(t *testing.T){if Add(2,3)!=5{t.Fatal(\"bad\")}}\n",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := `schema_version=1
+database=".testledger/db.sqlite"
+artifact_directory=".testledger/artifacts"
+[[languages]]
+name="go"
+include=["**/*.go"]
+exclude=["**/*_test.go"]
+[languages.test]
+runner="go-test-json"
+command=["go","test","-json","-coverprofile={coverage_file}","./..."]
+test_roots=["."]
+[languages.coverage]
+format="go-coverprofile"
+minimum_line_percent=80
+[execution]
+timeout_seconds=60
+max_parallel_runs=1
+environment_allowlist=["PATH","HOME","GOCACHE","GOMODCACHE"]
+`
+	if err := os.WriteFile(filepath.Join(root, "testledger.toml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	symbols := []model.Symbol{{
-		Language: "python", Path: "pkg/example.py", QualifiedName: "outer", SemanticHash: "abc",
-		StartLine: 1, EndLine: 6, ExecutableLines: []int{2, 3, 4},
-	}}
-
-	observations, err := attributeCoverage(path, root, symbols)
+	a, err := Open(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(observations) != 1 {
-		t.Fatalf("got %d observations, want 1", len(observations))
+	defer a.Close()
+	result, err := a.TestLanguage(context.Background(), "go", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := observations[0]
-	if got.TestKey != "tests/test_example.py::test_one" {
-		t.Fatalf("unexpected test key %q", got.TestKey)
-	}
-	if got.ExecutedCount != 2 || got.ExecutableCount != 3 {
-		t.Fatalf("unexpected counts: %+v", got)
-	}
-	if got.LinePercent < 66.6 || got.LinePercent > 66.7 {
-		t.Fatalf("unexpected percent %f", got.LinePercent)
-	}
-}
-
-func TestCategorizeCases(t *testing.T) {
-	cases := []model.TestCaseResult{
-		{Outcome: "failed", Phase: "call", Traceback: "AssertionError: mismatch"},
-		{Outcome: "error", Phase: "collection", Traceback: "SyntaxError"},
-		{Outcome: "error", Phase: "setup", Traceback: "fixture exploded"},
-	}
-	categorizeCases(cases)
-	if cases[0].FailureCategory != "assertion" {
-		t.Fatalf("got %q", cases[0].FailureCategory)
-	}
-	if cases[1].FailureCategory != "collection" {
-		t.Fatalf("got %q", cases[1].FailureCategory)
-	}
-	if cases[2].FailureCategory != "fixture_setup" {
-		t.Fatalf("got %q", cases[2].FailureCategory)
+	if result.Status != "passed" || result.Passed != 1 || len(result.Cases) != 1 {
+		t.Fatalf("unexpected Go run: %+v", result)
 	}
 }

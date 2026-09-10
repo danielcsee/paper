@@ -1,3 +1,5 @@
+// Proposals, the human decisions recorded against them, and the intended
+// symbol-to-test links a later run either verifies or leaves unresolved.
 package store
 
 import (
@@ -8,73 +10,8 @@ import (
 	"time"
 
 	"github.com/danielcsee/sciterm/testledger/internal/model"
+	_ "modernc.org/sqlite"
 )
-
-func (s *Store) CurrentSymbols(ctx context.Context) ([]model.Symbol, error) {
-	runID, _, err := s.LatestInventory(ctx)
-	if err != nil || runID == "" {
-		return []model.Symbol{}, err
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT s.language, sv.path, s.qualified_name, sv.kind,
-sv.start_line, sv.end_line, sv.executable_lines_json, sv.semantic_hash, sv.signature_hash, sv.body_hash
-FROM symbol_versions sv JOIN symbols s ON s.id=sv.symbol_id
-WHERE sv.inventory_run_id=? ORDER BY s.symbol_key`, runID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []model.Symbol{}
-	for rows.Next() {
-		var symbol model.Symbol
-		var lines string
-		if err := rows.Scan(&symbol.Language, &symbol.Path, &symbol.QualifiedName, &symbol.Kind,
-			&symbol.StartLine, &symbol.EndLine, &lines, &symbol.SemanticHash, &symbol.SignatureHash, &symbol.BodyHash); err != nil {
-			return nil, err
-		}
-		_ = json.Unmarshal([]byte(lines), &symbol.ExecutableLines)
-		result = append(result, symbol)
-	}
-	return result, rows.Err()
-}
-
-func (s *Store) RecentInventoryIDs(ctx context.Context, limit int) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM inventory_runs WHERE status='completed' ORDER BY completed_at DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-func (s *Store) CoveringTests(ctx context.Context, symbolKey, semanticHash string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT t.test_key
-FROM coverage_observations co
-JOIN symbols s ON s.id=co.symbol_id JOIN tests t ON t.id=co.test_id
-JOIN test_case_results tr ON tr.run_id=co.run_id AND tr.test_id=co.test_id
-WHERE s.symbol_key=? AND co.semantic_hash=? AND tr.outcome='passed'
-ORDER BY t.test_key`, symbolKey, semanticHash)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []string{}
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			return nil, err
-		}
-		result = append(result, key)
-	}
-	return result, rows.Err()
-}
 
 func (s *Store) CreateProposal(ctx context.Context, proposal model.TestProposal) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -263,6 +200,11 @@ func (s *Store) MarkProposalImplemented(ctx context.Context, id string, links []
 // dispositions in force now. Resolution is what a caller should read: a link
 // the human has dispositioned is settled even though no coverage will ever
 // verify it, and only LinkUnresolved still blocks the proposal.
+
+// ProposalLinks returns a proposal's intended links, each resolved against the
+// dispositions in force now. Resolution is what a caller should read: a link
+// the human has dispositioned is settled even though no coverage will ever
+// verify it, and only LinkUnresolved still blocks the proposal.
 func (s *Store) ProposalLinks(ctx context.Context, id string) ([]model.IntendedTestLink, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rows, err := s.db.QueryContext(ctx, `SELECT l.symbol_key,l.test_key,l.verified_run_id IS NOT NULL,COALESCE(l.verified_run_id,''),
@@ -334,6 +276,8 @@ AND NOT EXISTS (
 }
 
 // UnresolvedLinkCount is the number of links still blocking a proposal.
+
+// UnresolvedLinkCount is the number of links still blocking a proposal.
 func (s *Store) UnresolvedLinkCount(ctx context.Context, proposalID string) (int, error) {
 	links, err := s.ProposalLinks(ctx, proposalID)
 	if err != nil {
@@ -346,170 +290,4 @@ func (s *Store) UnresolvedLinkCount(ctx context.Context, proposalID string) (int
 		}
 	}
 	return count, nil
-}
-
-func (s *Store) FailureContext(ctx context.Context, runID, testKey string) (model.FailureContext, error) {
-	var result model.TestCaseResult
-	err := s.db.QueryRowContext(ctx, `SELECT t.test_key,tr.outcome,tr.phase,tr.duration_seconds,COALESCE(tr.failure_category,''),COALESCE(tr.message,''),COALESCE(tr.traceback,''),COALESCE(tr.stdout_excerpt,''),COALESCE(tr.stderr_excerpt,'')
-FROM test_case_results tr JOIN tests t ON t.id=tr.test_id WHERE tr.run_id=? AND t.test_key=? ORDER BY tr.id DESC LIMIT 1`, runID, testKey).Scan(&result.TestKey, &result.Outcome, &result.Phase, &result.DurationSeconds, &result.FailureCategory, &result.Message, &result.Traceback, &result.Stdout, &result.Stderr)
-	if err != nil {
-		return model.FailureContext{}, err
-	}
-	contextResult := model.FailureContext{Result: result}
-	var diagnosis model.FailureDiagnosis
-	err = s.db.QueryRowContext(ctx, `SELECT fd.run_id,t.test_key,fd.category,fd.explanation,fd.created_by,fd.created_at
-FROM failure_diagnoses fd JOIN tests t ON t.id=fd.test_id WHERE fd.run_id=? AND t.test_key=? ORDER BY fd.id DESC LIMIT 1`, runID, testKey).Scan(&diagnosis.RunID, &diagnosis.TestKey, &diagnosis.Category, &diagnosis.Explanation, &diagnosis.CreatedBy, &diagnosis.CreatedAt)
-	if err == nil {
-		contextResult.Diagnosis = &diagnosis
-	} else if err != sql.ErrNoRows {
-		return contextResult, err
-	}
-	return contextResult, nil
-}
-
-func (s *Store) AddFailureDiagnosis(ctx context.Context, diagnosis model.FailureDiagnosis) error {
-	result, err := s.FailureContext(ctx, diagnosis.RunID, diagnosis.TestKey)
-	if err != nil {
-		return err
-	}
-	if result.Result.Outcome == "passed" || result.Result.Outcome == "skipped" {
-		return fmt.Errorf("test %s is not a failure", diagnosis.TestKey)
-	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO failure_diagnoses(run_id,test_id,category,explanation,created_by,created_at)
-SELECT ?,id,?,?,?,? FROM tests WHERE test_key=?`, diagnosis.RunID, diagnosis.Category, diagnosis.Explanation, diagnosis.CreatedBy, diagnosis.CreatedAt, diagnosis.TestKey)
-	return err
-}
-
-func (s *Store) CreateJob(ctx context.Context, job model.AsyncJob) error {
-	arguments, _ := json.Marshal(job.Arguments)
-	_, err := s.db.ExecContext(ctx, `INSERT INTO async_jobs(id,kind,status,arguments_json,created_at) VALUES(?,?,?,?,?)`,
-		job.ID, job.Kind, job.Status, string(arguments), job.CreatedAt)
-	return err
-}
-
-func (s *Store) StartJob(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE async_jobs SET status='running',started_at=? WHERE id=? AND status='queued'`, time.Now().UTC().Format(time.RFC3339Nano), id)
-	return err
-}
-
-func (s *Store) FinishJob(ctx context.Context, id, status, runID, message string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE async_jobs SET status=?,finished_at=?,result_run_id=?,error=? WHERE id=?`,
-		status, time.Now().UTC().Format(time.RFC3339Nano), nullString(runID), nullString(message), id)
-	return err
-}
-
-func (s *Store) GetJob(ctx context.Context, id string) (model.AsyncJob, error) {
-	var job model.AsyncJob
-	var arguments, started, finished, runID, message string
-	err := s.db.QueryRowContext(ctx, `SELECT id,kind,status,arguments_json,created_at,COALESCE(started_at,''),COALESCE(finished_at,''),COALESCE(result_run_id,''),COALESCE(error,'')
-FROM async_jobs WHERE id=?`, id).Scan(&job.ID, &job.Kind, &job.Status, &arguments, &job.CreatedAt, &started, &finished, &runID, &message)
-	if err != nil {
-		return job, err
-	}
-	_ = json.Unmarshal([]byte(arguments), &job.Arguments)
-	job.StartedAt, job.FinishedAt, job.ResultRunID, job.Error = started, finished, runID, message
-	return job, nil
-}
-
-func (s *Store) ActiveJobs(ctx context.Context) ([]model.AsyncJob, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM async_jobs WHERE status IN ('queued','running') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	jobs := []model.AsyncJob{}
-	for _, id := range ids {
-		job, err := s.GetJob(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, job)
-	}
-	return jobs, nil
-}
-
-func (s *Store) InterruptActiveJobs(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE async_jobs SET status='interrupted',finished_at=?,error='MCP server restarted before completion'
-WHERE status IN ('queued','running')`, time.Now().UTC().Format(time.RFC3339Nano))
-	return err
-}
-
-func (s *Store) TestRun(ctx context.Context, runID string, limit, offset int, failuresOnly bool) (model.TestRunResult, model.Page[model.TestCaseResult], error) {
-	var result model.TestRunResult
-	var started, finished string
-	err := s.db.QueryRowContext(ctx, `SELECT id,status,started_at,COALESCE(finished_at,''),COALESCE(exit_code,-1),artifact_directory,COALESCE(infrastructure_error,'')
-FROM test_runs WHERE id=?`, runID).Scan(&result.RunID, &result.Status, &started, &finished, &result.ExitCode, &result.ArtifactDirectory, &result.InfrastructureErr)
-	if err != nil {
-		return result, model.Page[model.TestCaseResult]{}, err
-	}
-	result.StartedAt, _ = time.Parse(time.RFC3339Nano, started)
-	result.FinishedAt, _ = time.Parse(time.RFC3339Nano, finished)
-	countRows, err := s.db.QueryContext(ctx, `SELECT outcome,COUNT(*) FROM test_case_results WHERE run_id=? GROUP BY outcome`, runID)
-	if err != nil {
-		return result, model.Page[model.TestCaseResult]{}, err
-	}
-	for countRows.Next() {
-		var outcome string
-		var count int
-		if err := countRows.Scan(&outcome, &count); err != nil {
-			countRows.Close()
-			return result, model.Page[model.TestCaseResult]{}, err
-		}
-		switch outcome {
-		case "passed":
-			result.Passed = count
-		case "failed":
-			result.Failed = count
-		case "skipped":
-			result.Skipped = count
-		default:
-			result.Errors += count
-		}
-	}
-	if err := countRows.Close(); err != nil {
-		return result, model.Page[model.TestCaseResult]{}, err
-	}
-	where := " WHERE tr.run_id=?"
-	if failuresOnly {
-		where += " AND tr.outcome NOT IN ('passed','skipped')"
-	}
-	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM test_case_results tr`+where, runID).Scan(&total); err != nil {
-		return result, model.Page[model.TestCaseResult]{}, err
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT t.test_key,tr.outcome,tr.phase,tr.duration_seconds,COALESCE(tr.failure_category,''),COALESCE(tr.message,''),COALESCE(tr.traceback,''),COALESCE(tr.stdout_excerpt,''),COALESCE(tr.stderr_excerpt,'')
-FROM test_case_results tr JOIN tests t ON t.id=tr.test_id`+where+` ORDER BY t.test_key LIMIT ? OFFSET ?`, runID, limit, offset)
-	if err != nil {
-		return result, model.Page[model.TestCaseResult]{}, err
-	}
-	page := model.Page[model.TestCaseResult]{Items: []model.TestCaseResult{}, Total: total}
-	for rows.Next() {
-		var tc model.TestCaseResult
-		if err := rows.Scan(&tc.TestKey, &tc.Outcome, &tc.Phase, &tc.DurationSeconds, &tc.FailureCategory, &tc.Message, &tc.Traceback, &tc.Stdout, &tc.Stderr); err != nil {
-			rows.Close()
-			return result, page, err
-		}
-		page.Items = append(page.Items, tc)
-	}
-	if err := rows.Close(); err != nil {
-		return result, page, err
-	}
-	if offset+len(page.Items) < total {
-		page.NextCursor = offset + len(page.Items)
-	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM coverage_observations WHERE run_id=?`, runID).Scan(&result.CoverageMappings); err != nil {
-		return result, page, err
-	}
-	return result, page, nil
 }
