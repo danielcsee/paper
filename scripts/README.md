@@ -116,6 +116,36 @@ this project — rebuilding this project should not delete another one's databas
 It prints the foreign containers by name and requires you to type the project
 name to continue; `--yes` skips that for scripted use.
 
+## `claude-to-codex.py`
+
+Generates Codex configuration from the Claude Code configuration, so a Codex
+agent picks up the same instructions without anyone redefining them.
+
+```bash
+./scripts/claude-to-codex.py --dry-run   # show the plan
+./scripts/claude-to-codex.py             # write it
+./scripts/claude-to-codex.py --prune     # also delete generated files whose source is gone
+```
+
+`CLAUDE.md` becomes `AGENTS.md` and `.claude/skills/` becomes `.agents/skills/`,
+which Codex discovers automatically in any session started in this repo. It also
+converts `.claude/agents/` and `.claude/commands/` if they ever appear, and turns
+`.mcp.json` into a `config.toml` fragment.
+
+**It only writes; it never touches the Claude side.** Claude remains the source of
+truth, so edit `CLAUDE.md` or `.claude/` and re-run — do not edit the generated
+files. `.agents/.claude-sync.json` records what was generated, so re-runs are
+idempotent and anything you wrote yourself is left alone (`--force` overrides).
+
+Some things have no faithful equivalent and are reported rather than guessed at:
+tool permissions, hooks, and per-skill model pins. The script prints them.
+
+Verify what Codex actually loaded:
+
+```bash
+codex debug prompt-input | grep -i skill
+```
+
 ## Ports
 
 Read from `.env`, with defaults: API `8000`, UI `5173`, Postgres `5432`, Neo4j

@@ -1,0 +1,12 @@
+{
+  "generated_by": "scripts/claude-to-codex.py",
+  "note": "Tracks files generated from the Claude Code config. Do not edit.",
+  "files": {
+    ".agents/README.md": "e808fc8992dca353a5ab7ba132f910afeaba72f4868ca44df279cdf47ac91ed3",
+    ".agents/skills/backend/SKILL.md": "3482a7da571e285c87e93fb0a44acd340bc5adac55fd7e3630a9774acb583ef6",
+    ".agents/skills/developer/SKILL.md": "94db6cd53fff9af368ba111b876414437a1048f172c213588bbfae6887220e3e",
+    ".agents/skills/frontend/SKILL.md": "28f7fd8bb88e4b731f03fc7a18cbad4bb98e4944a0f48e052f8c33223d95ac5d",
+    ".agents/skills/test/SKILL.md": "2b4786dbbf5058830b8dc7b8e9e6f4a46da1c42581aa06ce5779b0e78fefbf36",
+    "AGENTS.md": "e493acbd693f3f074272850520288ca5381d4aac05f4aa199cf8c9160ab40412"
+  }
+}
