@@ -21,6 +21,13 @@ type Config struct {
 	ArtifactDirectory string          `toml:"artifact_directory"`
 	Languages         []Language      `toml:"languages"`
 	Execution         ExecutionConfig `toml:"execution"`
+	// AllowAgentDecisions lets the MCP transport record human decisions --
+	// approving a proposal, dispositioning a symbol. It is false by default:
+	// the workflow rests on agents proposing and humans deciding, and a
+	// decision verb reachable from the agent's own transport makes that an
+	// honour system. Leaving it false keeps `decide` and `skip` on the CLI,
+	// where the process boundary enforces what a prompt cannot.
+	AllowAgentDecisions bool `toml:"allow_agent_decisions"`
 }
 
 type Language struct {

@@ -2,6 +2,13 @@ schema_version = 1
 database = ".testledger/testledger.db"
 artifact_directory = ".testledger/artifacts"
 
+# Let agents record human decisions (`decide`, `skip`) over MCP. Off by design:
+# the workflow rests on agents proposing and humans deciding, and a decision
+# tool the agent can call is a gate on the honour system. While this is false
+# those two tools are not advertised over MCP at all, and the human runs them
+# from the command line.
+allow_agent_decisions = false
+
 [[languages]]
 name = "python"
 python = "python3"
