@@ -154,13 +154,37 @@ type TestProposal struct {
 	CreatedAt string            `json:"created_at"`
 	UpdatedAt string            `json:"updated_at"`
 	Decision  *ProposalDecision `json:"decision,omitempty"`
+	// Links are the intended symbol-to-test links recorded at implementation.
+	// Exposed so a caller can see which links still block the proposal instead
+	// of having to re-run tests to find out.
+	Links []IntendedTestLink `json:"links,omitempty"`
 }
+
+// Resolution values for an IntendedTestLink. A link must reach one of the two
+// terminal values before its proposal can close.
+const (
+	// LinkUnresolved: the named test has not yet covered the symbol to the
+	// configured threshold. This is the only value that blocks a proposal.
+	LinkUnresolved = "unresolved"
+	// LinkVerified: a passing test reached the symbol version at or above the
+	// threshold. Coverage evidence, produced by a run.
+	LinkVerified = "verified"
+	// LinkDispositioned: a human recorded an active disposition for the symbol,
+	// so no coverage will ever be observed for it. A decision of record, kept
+	// distinct from LinkVerified so the ledger never claims unproven evidence.
+	LinkDispositioned = "dispositioned"
+)
 
 type IntendedTestLink struct {
 	SymbolKey string `json:"symbol_key"`
 	TestKey   string `json:"test_key"`
 	Verified  bool   `json:"verified"`
 	RunID     string `json:"verified_run_id,omitempty"`
+	// Resolution is one of LinkUnresolved, LinkVerified or LinkDispositioned.
+	Resolution string `json:"resolution"`
+	// Reason explains a resolution the agent cannot infer, chiefly the
+	// disposition rationale behind LinkDispositioned.
+	Reason string `json:"reason,omitempty"`
 }
 
 type FailureDiagnosis struct {

@@ -1,37 +1,22 @@
+// Executing a language's native test runner and recording the result.
+// Commands are fixed argument arrays with artifact placeholders, never
+// shell-evaluated.
 package app
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/danielcsee/sciterm/testledger/internal/config"
 	"github.com/danielcsee/sciterm/testledger/internal/model"
 	"github.com/danielcsee/sciterm/testledger/internal/pythonadapter"
-	"github.com/danielcsee/sciterm/testledger/internal/store"
 )
-
-type pytestPayload struct {
-	ExitStatus int                    `json:"exit_status"`
-	Tests      []model.TestCaseResult `json:"tests"`
-}
-
-type coveragePayload struct {
-	Files map[string]coverageFile `json:"files"`
-}
-
-type coverageFile struct {
-	ExecutedLines   []int               `json:"executed_lines"`
-	MissingLines    []int               `json:"missing_lines"`
-	Contexts        map[string][]string `json:"contexts"`
-	MissingBranches [][]int             `json:"missing_branches"`
-}
 
 func (a *App) Test(ctx context.Context, extraArgs []string) (model.TestRunResult, error) {
 	check, symbols, err := a.Scan(ctx)
@@ -169,61 +154,124 @@ func (a *App) Test(ctx context.Context, extraArgs []string) (model.TestRunResult
 	return result, nil
 }
 
-func coverageDetails(path, root string, symbols []model.Symbol) ([]store.CoverageDetail, error) {
-	contents, err := os.ReadFile(path)
+func (a *App) TestLanguage(ctx context.Context, language string, selectors []string) (model.TestRunResult, error) {
+	lang, err := a.language(language)
 	if err != nil {
-		return nil, err
+		return model.TestRunResult{}, err
 	}
-	var payload coveragePayload
-	if err := json.Unmarshal(contents, &payload); err != nil {
-		return nil, err
+	switch lang.Test.Runner {
+	case "pytest":
+		return a.Test(ctx, selectors)
+	case "go-test-json", "vitest-json", "jest-json":
+		return a.testStructured(ctx, lang, selectors)
+	default:
+		return model.TestRunResult{}, fmt.Errorf("unsupported test runner %q", lang.Test.Runner)
 	}
-	byPath := map[string][]model.Symbol{}
-	for _, symbol := range symbols {
-		byPath[filepath.ToSlash(symbol.Path)] = append(byPath[filepath.ToSlash(symbol.Path)], symbol)
-	}
-	details := []store.CoverageDetail{}
-	for rawPath, file := range payload.Files {
-		relative := rawPath
-		if filepath.IsAbs(relative) {
-			if rel, relErr := filepath.Rel(root, relative); relErr == nil {
-				relative = rel
-			}
-		}
-		relative = filepath.ToSlash(filepath.Clean(relative))
-		missingSet := map[int]bool{}
-		for _, line := range file.MissingLines {
-			missingSet[line] = true
-		}
-		for _, symbol := range byPath[relative] {
-			detail := store.CoverageDetail{SymbolKey: symbol.Key(), SemanticHash: symbol.SemanticHash, MissingLines: []int{}, MissingBranches: []model.Branch{}}
-			for _, line := range symbol.ExecutableLines {
-				if missingSet[line] {
-					detail.MissingLines = append(detail.MissingLines, line)
-				}
-			}
-			for _, pair := range file.MissingBranches {
-				if len(pair) == 2 && pair[0] >= symbol.StartLine && pair[0] <= symbol.EndLine {
-					description := fmt.Sprintf("branch from line %d to line %d was not executed", pair[0], pair[1])
-					if pair[1] < 0 {
-						description = fmt.Sprintf("exit branch from line %d was not executed", pair[0])
-					}
-					detail.MissingBranches = append(detail.MissingBranches, model.Branch{From: pair[0], To: pair[1], Description: description})
-				}
-			}
-			details = append(details, detail)
-		}
-	}
-	return details, nil
 }
 
-func (a *App) pythonLanguage() (config.Language, error) {
-	for _, language := range a.Config.Languages {
-		if language.Name == "python" {
-			return language, nil
+func (a *App) testStructured(ctx context.Context, lang config.Language, selectors []string) (model.TestRunResult, error) {
+	check, symbols, err := a.Scan(ctx)
+	if err != nil {
+		return model.TestRunResult{}, err
+	}
+	if len(lang.Test.Command) == 0 {
+		return model.TestRunResult{}, errors.New("configured test command is empty")
+	}
+	runID := newID("test")
+	artifactDir := filepath.Join(config.Resolve(a.Root, a.Config.ArtifactDirectory), runID)
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		return model.TestRunResult{}, err
+	}
+	resultsPath := filepath.Join(artifactDir, "results.json")
+	coveragePath := filepath.Join(artifactDir, "coverage.out")
+	configuredCoveragePath := ""
+	if lang.Coverage.Format == "istanbul-json" {
+		coveragePath = filepath.Join(artifactDir, "coverage.json")
+	}
+	if lang.Coverage.File != "" {
+		configuredCoveragePath = filepath.Join(a.Root, lang.WorkingDirectory, lang.Coverage.File)
+	}
+	command := replaceCommand(lang.Test.Command, map[string]string{"artifact_dir": artifactDir, "results_file": resultsPath, "coverage_file": coveragePath})
+	command = append(command, selectors...)
+	result := model.TestRunResult{RunID: runID, Status: "running", StartedAt: time.Now().UTC(), ExitCode: -1, ArtifactDirectory: artifactDir}
+	if err := a.Store.BeginTestRun(ctx, result, check.InventoryRunID, command); err != nil {
+		return result, err
+	}
+	stdoutPath, stderrPath := filepath.Join(artifactDir, "stdout.log"), filepath.Join(artifactDir, "stderr.log")
+	stdoutFile, err := os.Create(stdoutPath)
+	if err != nil {
+		return result, err
+	}
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		stdoutFile.Close()
+		return result, err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, a.Config.Execution.Timeout())
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, command[0], command[1:]...)
+	cmd.Dir = filepath.Join(a.Root, lang.WorkingDirectory)
+	cmd.Stdout, cmd.Stderr = stdoutFile, stderrFile
+	cmd.Env = environment(a.Config.Execution.EnvironmentAllowlist, map[string]string{"TESTLEDGER_RESULTS_FILE": resultsPath, "TESTLEDGER_COVERAGE_FILE": coveragePath})
+	runErr := cmd.Run()
+	_ = stdoutFile.Close()
+	_ = stderrFile.Close()
+	result.ExitCode, result.FinishedAt = commandExitCode(runErr), time.Now().UTC()
+	if runCtx.Err() == context.DeadlineExceeded {
+		result.Status = "timeout"
+		result.InfrastructureErr = "test command exceeded configured timeout"
+	}
+	var parseErr error
+	switch lang.Test.Runner {
+	case "go-test-json":
+		result.Cases, parseErr = parseGoTestJSON(stdoutPath, a.Config.Execution.MaxOutputBytes)
+	default:
+		input := resultsPath
+		if !fileExists(input) {
+			input = stdoutPath
+		}
+		result.Cases, parseErr = parseJSTestJSON(input, a.Config.Execution.MaxOutputBytes)
+	}
+	if parseErr != nil {
+		result.Status = "infrastructure_error"
+		result.InfrastructureErr = "structured test results unavailable: " + parseErr.Error()
+		stderr, _ := os.ReadFile(stderrPath)
+		result.Cases = []model.TestCaseResult{{TestKey: "<infrastructure>", Outcome: "error", Phase: "startup", FailureCategory: "infrastructure", Message: result.InfrastructureErr, Stderr: truncate(string(stderr), a.Config.Execution.MaxOutputBytes)}}
+	}
+	categorizeCases(result.Cases)
+	countCases(&result)
+	if result.Status == "running" {
+		if result.ExitCode == 0 && result.Failed == 0 && result.Errors == 0 {
+			result.Status = "passed"
+		} else {
+			result.Status = "failed"
 		}
 	}
-	return config.Language{}, fmt.Errorf("no Python language configured")
+	if err := a.Store.FinishTestRun(ctx, result); err != nil {
+		return result, err
+	}
+	if !artifactFresh(coveragePath, result.StartedAt) && configuredCoveragePath != "" && artifactFresh(configuredCoveragePath, result.StartedAt) {
+		if contents, err := os.ReadFile(configuredCoveragePath); err == nil {
+			_ = os.WriteFile(coveragePath, contents, 0o600)
+		}
+	}
+	if lang.Test.Runner == "go-test-json" && artifactFresh(coveragePath, result.StartedAt) {
+		if details, err := goCoverageDetails(coveragePath, symbols); err == nil {
+			_ = a.Store.SaveCoverageDetails(ctx, runID, details)
+		}
+	} else if artifactFresh(coveragePath, result.StartedAt) {
+		if details, err := istanbulCoverageDetails(coveragePath, a.Root, symbols); err == nil {
+			_ = a.Store.SaveCoverageDetails(ctx, runID, details)
+		}
+	}
+	for _, artifact := range []struct{ kind, path string }{{"stdout", stdoutPath}, {"stderr", stderrPath}, {"results_json", resultsPath}, {"coverage", coveragePath}} {
+		if fileExists(artifact.path) {
+			if hash, n, err := hashFile(artifact.path); err == nil {
+				_ = a.Store.AddArtifact(ctx, runID, artifact.kind, artifact.path, hash, n)
+			}
+		}
+	}
+	return result, nil
 }
 
 func coverageCommand(lang config.Language, pluginDir, pytestJSON, coverageData string, extra []string) ([]string, error) {
@@ -248,63 +296,6 @@ func coverageCommand(lang config.Language, pluginDir, pytestJSON, coverageData s
 	return command, nil
 }
 
-func readPytestResults(path string, maxOutput int64) (pytestPayload, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return pytestPayload{}, err
-	}
-	var payload pytestPayload
-	if err := json.Unmarshal(contents, &payload); err != nil {
-		return payload, err
-	}
-	for i := range payload.Tests {
-		payload.Tests[i].Traceback = truncate(payload.Tests[i].Traceback, maxOutput)
-		payload.Tests[i].Stdout = truncate(payload.Tests[i].Stdout, maxOutput)
-		payload.Tests[i].Stderr = truncate(payload.Tests[i].Stderr, maxOutput)
-	}
-	return payload, nil
-}
-
-func categorizeCases(cases []model.TestCaseResult) {
-	for i := range cases {
-		if cases[i].Outcome == "passed" || cases[i].Outcome == "skipped" {
-			continue
-		}
-		text := strings.ToLower(cases[i].Message + "\n" + cases[i].Traceback)
-		switch {
-		case cases[i].Phase == "collection":
-			cases[i].FailureCategory = "collection"
-		case strings.Contains(text, "importerror") || strings.Contains(text, "modulenotfounderror"):
-			cases[i].FailureCategory = "import"
-		case cases[i].Phase == "setup":
-			cases[i].FailureCategory = "fixture_setup"
-		case cases[i].Phase == "teardown":
-			cases[i].FailureCategory = "teardown"
-		case strings.Contains(text, "assertionerror"):
-			cases[i].FailureCategory = "assertion"
-		case strings.Contains(text, "timeout"):
-			cases[i].FailureCategory = "timeout"
-		default:
-			cases[i].FailureCategory = "application_exception"
-		}
-	}
-}
-
-func countCases(result *model.TestRunResult) {
-	for _, tc := range result.Cases {
-		switch tc.Outcome {
-		case "passed":
-			result.Passed++
-		case "failed":
-			result.Failed++
-		case "skipped":
-			result.Skipped++
-		default:
-			result.Errors++
-		}
-	}
-}
-
 func exportCoverage(ctx context.Context, root string, lang config.Language, dataPath, jsonPath string, env []string) error {
 	python := lang.Python
 	if len(lang.Test.Command) > 0 {
@@ -319,90 +310,18 @@ func exportCoverage(ctx context.Context, root string, lang config.Language, data
 	return nil
 }
 
-func attributeCoverage(path, root string, symbols []model.Symbol) ([]store.CoverageObservation, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var payload coveragePayload
-	if err := json.Unmarshal(contents, &payload); err != nil {
-		return nil, err
-	}
-	byPath := map[string][]model.Symbol{}
-	for _, symbol := range symbols {
-		byPath[filepath.ToSlash(symbol.Path)] = append(byPath[filepath.ToSlash(symbol.Path)], symbol)
-	}
-	type aggregate struct {
-		lines      map[int]bool
-		executable map[int]bool
-		symbol     model.Symbol
-		test       string
-	}
-	aggregates := map[string]*aggregate{}
-	for rawPath, file := range payload.Files {
-		relative := rawPath
-		if filepath.IsAbs(relative) {
-			if rel, err := filepath.Rel(root, relative); err == nil {
-				relative = rel
-			}
+func replaceCommand(command []string, values map[string]string) []string {
+	result := make([]string, len(command))
+	for i, arg := range command {
+		for key, value := range values {
+			arg = strings.ReplaceAll(arg, "{"+key+"}", value)
 		}
-		relative = filepath.ToSlash(filepath.Clean(relative))
-		fileSymbols := byPath[relative]
-		allExecutable := append(append([]int{}, file.ExecutedLines...), file.MissingLines...)
-		for _, symbol := range fileSymbols {
-			executable := map[int]bool{}
-			coverageExecutable := map[int]bool{}
-			for _, line := range allExecutable {
-				coverageExecutable[line] = true
-			}
-			for _, line := range symbol.ExecutableLines {
-				if coverageExecutable[line] {
-					executable[line] = true
-				}
-			}
-			for lineText, contexts := range file.Contexts {
-				var line int
-				if _, err := fmt.Sscanf(lineText, "%d", &line); err != nil || !executable[line] {
-					continue
-				}
-				for _, testKey := range contexts {
-					if testKey == "" {
-						continue
-					}
-					key := testKey + "\x00" + symbol.Key()
-					agg := aggregates[key]
-					if agg == nil {
-						agg = &aggregate{lines: map[int]bool{}, executable: executable, symbol: symbol, test: testKey}
-						aggregates[key] = agg
-					}
-					agg.lines[line] = true
-				}
-			}
-		}
+		result[i] = arg
 	}
-	observations := make([]store.CoverageObservation, 0, len(aggregates))
-	for _, aggregate := range aggregates {
-		lines := make([]int, 0, len(aggregate.lines))
-		for line := range aggregate.lines {
-			lines = append(lines, line)
-		}
-		sort.Ints(lines)
-		percent := 0.0
-		if len(aggregate.executable) > 0 {
-			percent = float64(len(lines)) / float64(len(aggregate.executable)) * 100
-		}
-		observations = append(observations, store.CoverageObservation{
-			TestKey: aggregate.test, SymbolKey: aggregate.symbol.Key(), SemanticHash: aggregate.symbol.SemanticHash,
-			ExecutedLines: lines, ExecutedCount: len(lines), ExecutableCount: len(aggregate.executable), LinePercent: percent,
-		})
-	}
-	sort.Slice(observations, func(i, j int) bool {
-		if observations[i].SymbolKey == observations[j].SymbolKey {
-			return observations[i].TestKey < observations[j].TestKey
-		}
-		return observations[i].SymbolKey < observations[j].SymbolKey
-	})
-	return observations, nil
+	return result
 }
 
-func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
+func artifactFresh(path string, started time.Time) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.ModTime().Before(started.Add(-time.Second))
+}

@@ -9,45 +9,6 @@ import (
 	"github.com/danielcsee/sciterm/testledger/internal/model"
 )
 
-func copyFixture(t *testing.T) string {
-	t.Helper()
-	source := filepath.Join("testdata", "python_project")
-	destination := t.TempDir()
-	err := filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(destination, relative)
-		if info.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, contents, info.Mode())
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return destination
-}
-
-func openFixture(t *testing.T) (*App, string) {
-	t.Helper()
-	root := copyFixture(t)
-	application, err := Open(root, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = application.Close() })
-	return application, root
-}
-
 func TestProposalLifecycleAndNextActions(t *testing.T) {
 	application, _ := openFixture(t)
 	ctx := context.Background()
@@ -164,16 +125,5 @@ func TestImplementationRequiresEveryTargetAndRejectsPytestFlags(t *testing.T) {
 	}
 	if _, err = application.StartAsyncTest(ctx, []string{"-k", "add"}, ""); err == nil {
 		t.Fatal("arbitrary pytest flag was accepted")
-	}
-}
-
-func TestNextActionsRequestsInitialScan(t *testing.T) {
-	application, _ := openFixture(t)
-	next, err := application.NextActions(context.Background(), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if next.State != "scan_required" {
-		t.Fatalf("got state %q", next.State)
 	}
 }

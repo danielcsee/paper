@@ -7,6 +7,30 @@ methods directly rather than shelling out to one another.
 The store contains no agent decisions, and the Python adapter contains no
 coverage policy.
 
+Files in `internal/app` and `internal/store` are grouped by what they do, one
+concern per file, each paired with a `_test.go` of the same name:
+
+| File | Concern |
+| --- | --- |
+| `app.go` | the `App` type, its lifecycle, and configuration lookups |
+| `adapter.go` | the `Discoverer` interface and the language registry |
+| `inventory.go` | source to symbol inventory, and inventory comparison |
+| `coverage.go` | which symbols count as gaps, and symbol context |
+| `attribution.go` | native coverage reports to per-symbol evidence |
+| `dispositions.go` | recorded decisions to leave a symbol untested |
+| `proposals.go` | the propose / decide / implement lifecycle |
+| `workflow.go` | `Status` and `NextActions` |
+| `runner.go` | executing a language's native test runner |
+| `results.go` | normalising each runner's result format |
+| `jobs.go` | asynchronous runs and reading their results |
+| `selection.go` | affected-test selection |
+| `mutation.go` | optional mutation signals |
+| `support.go` | identifiers, hashing, subprocess environment, paging |
+
+A language adapter satisfies `app.Discoverer`. The interface is declared in the
+consuming package and implementations are registered in one map, so adding a
+language is a registry entry rather than another arm of a type switch.
+
 ```text
 CLI / MCP stdio
        |
