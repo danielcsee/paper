@@ -102,6 +102,10 @@ func (a *App) Scan(ctx context.Context) (model.CheckResult, []model.Symbol, erro
 			result.Skipped++
 			continue
 		}
+		if coverable(symbol) {
+			result.Skipped++
+			continue
+		}
 		minimum := a.minimumCoverage(symbol.Language)
 		coverage, err := a.Store.CoverageForSymbol(ctx, symbol.Key(), symbol.SemanticHash, minimum)
 		if err != nil {
@@ -319,4 +323,12 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	return os.WriteFile(path, append(contents, '\n'), 0o600)
+}
+
+// coverable reports whether a symbol has no executable body -- an overload
+// stub, or a body that is only a docstring. No run can ever produce coverage
+// for one, so reporting it as a gap would create a backlog entry nobody can
+// ever clear.
+func coverable(symbol model.Symbol) bool {
+	return len(symbol.ExecutableLines) == 0
 }

@@ -42,3 +42,32 @@ func TestDiscoverIgnoresFormattingAndExcludesNestedLines(t *testing.T) {
 		}
 	}
 }
+
+// A decorated one-line method used to report its decorator as an executable
+// line. The decorator runs at import time, in coverage.py's empty context, so
+// it could never be attributed to a test -- capping an @property at 50% and
+// putting it permanently below any sane threshold.
+func TestDiscoverExcludesDefinitionTimeLines(t *testing.T) {
+	root := t.TempDir()
+	source := "import functools\n\n\nclass Holder:\n    @property\n    def value(self):\n        return 1\n\n\n@functools.lru_cache(\n    maxsize=None,\n)\ndef wrapped(\n    first,\n    second=2,\n):\n    return first + second\n"
+	if err := os.WriteFile(filepath.Join(root, "sample.py"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lang := config.Language{Name: "python", Python: "python3", Include: []string{"**/*.py"}}
+	symbols, err := Adapter{}.Discover(context.Background(), root, lang)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string][]int{}
+	for _, symbol := range symbols {
+		byName[symbol.QualifiedName] = symbol.ExecutableLines
+	}
+	if got := byName["Holder.value"]; len(got) != 1 || got[0] != 7 {
+		t.Fatalf("Holder.value executable lines = %v, want only the body line 7", got)
+	}
+	// The decorator spans lines 10-12 and the signature 13-16; only the body
+	// statement on line 17 is evidence a test called the function.
+	if got := byName["wrapped"]; len(got) != 1 || got[0] != 17 {
+		t.Fatalf("wrapped executable lines = %v, want only the body line 17", got)
+	}
+}

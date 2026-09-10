@@ -37,9 +37,17 @@ def own_lines(node):
             super().generic_visit(child)
 
     Visitor().visit(node)
-    # A function's declaration executes at import time, outside any test
-    # context. It is not evidence that a test called the function.
-    lines.discard(node.lineno)
+    # Everything above the first body statement executes at definition time,
+    # outside any test context: the decorators, the `def` line, a signature
+    # continued across lines, and any default or annotation expression on it.
+    # None of it is evidence that a test called the function, so counting it
+    # caps a short function below any useful threshold -- a one-line @property
+    # could never exceed 50%.
+    if node.body:
+        first_body_line = node.body[0].lineno
+        lines = {line for line in lines if line >= first_body_line}
+    else:
+        lines.discard(node.lineno)
     if node.body and isinstance(node.body[0], ast.Expr):
         value = node.body[0].value
         if isinstance(value, (ast.Str, ast.Constant)) and isinstance(getattr(value, "value", None), str):

@@ -58,6 +58,9 @@ func (a *App) ListCoverageGaps(ctx context.Context, changedOnly bool, limit, cur
 		if skipped {
 			continue
 		}
+		if coverable(symbol) {
+			continue
+		}
 		minimum := a.minimumCoverage(symbol.Language)
 		coverage, err := a.Store.CoverageForSymbol(ctx, symbol.Key(), symbol.SemanticHash, minimum)
 		if err != nil {
@@ -479,12 +482,55 @@ func (a *App) NextActions(ctx context.Context, limit int) (model.NextActions, er
 		return result, err
 	}
 	if implemented.Total > 0 {
-		result.State = "tests_to_verify"
-		result.Summary["implemented"] = implemented.Total
+		// An implemented proposal needs a run to verify its links. But a link
+		// can also be permanently unverifiable -- the named test never reaches
+		// the symbol, or the symbol is one a run will never exercise. Asking
+		// for another run in that case yields the identical answer forever, so
+		// separate "no run has judged this yet" from "a run judged it and these
+		// links did not resolve".
+		toRun, blocked := []model.TestProposal{}, []model.NextAction{}
 		for _, proposal := range implemented.Items {
-			result.Actions = append(result.Actions, model.NextAction{Type: "run_implemented_tests", ID: proposal.ID, Description: "Run tests to verify the intended symbol-to-test coverage links."})
+			links, err := a.Store.ProposalLinks(ctx, proposal.ID)
+			if err != nil {
+				return result, err
+			}
+			judged := latest != nil && latest.FinishedAt.Format(time.RFC3339Nano) >= proposal.UpdatedAt
+			for _, link := range links {
+				if link.Resolution != model.LinkUnresolved {
+					continue
+				}
+				if !judged {
+					continue
+				}
+				blocked = append(blocked, model.NextAction{
+					Type: "review_unverified_link", ID: proposal.ID, SymbolKey: link.SymbolKey,
+					Description: "The last run did not show " + link.TestKey + " covering this symbol to the required percentage. Fix the test, relink it, or record a disposition -- rerunning alone will not resolve it.",
+				})
+			}
+			if !judged {
+				toRun = append(toRun, proposal)
+			}
 		}
-		return result, nil
+		if len(toRun) > 0 {
+			result.State = "tests_to_verify"
+			result.Summary["implemented"] = len(toRun)
+			for _, proposal := range toRun {
+				if len(result.Actions) >= limit {
+					break
+				}
+				result.Actions = append(result.Actions, model.NextAction{Type: "run_implemented_tests", ID: proposal.ID, Description: "Run tests to verify the intended symbol-to-test coverage links."})
+			}
+			return result, nil
+		}
+		if len(blocked) > 0 {
+			result.State = "links_unverified"
+			result.Summary["unresolved_links"] = len(blocked)
+			if len(blocked) > limit {
+				blocked = blocked[:limit]
+			}
+			result.Actions = append(result.Actions, blocked...)
+			return result, nil
+		}
 	}
 	gaps, err := a.ListCoverageGaps(ctx, false, limit, 0)
 	if err != nil {

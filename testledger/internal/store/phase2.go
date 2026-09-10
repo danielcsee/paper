@@ -133,6 +133,9 @@ WHERE proposal_id=? ORDER BY id DESC LIMIT 1`, id).Scan(&decision.Decision, &dec
 	} else if err != sql.ErrNoRows {
 		return proposal, err
 	}
+	if proposal.Links, err = s.ProposalLinks(ctx, id); err != nil {
+		return proposal, err
+	}
 	return proposal, nil
 }
 
@@ -224,8 +227,18 @@ func (s *Store) MarkProposalImplemented(ctx context.Context, id string, links []
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM test_proposals WHERE id=?`, id).Scan(&status); err != nil {
 		return err
 	}
-	if status != "approved" {
-		return fmt.Errorf("proposal %s is %s, expected approved", id, status)
+	// `implemented` is accepted as well as `approved`: a link can name a test
+	// that turns out not to reach its symbol, and correcting it is the action
+	// NextActions recommends for an unresolved link. Rejecting the correction
+	// would leave the proposal permanently stuck on a link nobody can fix.
+	if status != "approved" && status != "implemented" {
+		return fmt.Errorf("proposal %s is %s, expected approved or implemented", id, status)
+	}
+	// Re-recording replaces the previous set rather than accumulating, so a
+	// corrected link supersedes the one it replaces instead of sitting beside
+	// it. Verification timestamps are re-earned by the next run.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM intended_test_links WHERE proposal_id=?`, id); err != nil {
+		return err
 	}
 	for _, link := range links {
 		var count int
@@ -246,9 +259,16 @@ func (s *Store) MarkProposalImplemented(ctx context.Context, id string, links []
 	return tx.Commit()
 }
 
+// ProposalLinks returns a proposal's intended links, each resolved against the
+// dispositions in force now. Resolution is what a caller should read: a link
+// the human has dispositioned is settled even though no coverage will ever
+// verify it, and only LinkUnresolved still blocks the proposal.
 func (s *Store) ProposalLinks(ctx context.Context, id string) ([]model.IntendedTestLink, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT symbol_key,test_key,verified_run_id IS NOT NULL,COALESCE(verified_run_id,'')
-FROM intended_test_links WHERE proposal_id=? ORDER BY symbol_key,test_key`, id)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.symbol_key,l.test_key,l.verified_run_id IS NOT NULL,COALESCE(l.verified_run_id,''),
+COALESCE((SELECT d.reason FROM dispositions d WHERE d.symbol_key=l.symbol_key
+ AND (d.expires_at IS NULL OR d.expires_at > ?) ORDER BY d.id DESC LIMIT 1),'')
+FROM intended_test_links l WHERE l.proposal_id=? ORDER BY l.symbol_key,l.test_key`, now, id)
 	if err != nil {
 		return nil, err
 	}
@@ -256,8 +276,17 @@ FROM intended_test_links WHERE proposal_id=? ORDER BY symbol_key,test_key`, id)
 	links := []model.IntendedTestLink{}
 	for rows.Next() {
 		var link model.IntendedTestLink
-		if err := rows.Scan(&link.SymbolKey, &link.TestKey, &link.Verified, &link.RunID); err != nil {
+		var dispositionReason string
+		if err := rows.Scan(&link.SymbolKey, &link.TestKey, &link.Verified, &link.RunID, &dispositionReason); err != nil {
 			return nil, err
+		}
+		switch {
+		case link.Verified:
+			link.Resolution = model.LinkVerified
+		case dispositionReason != "":
+			link.Resolution, link.Reason = model.LinkDispositioned, dispositionReason
+		default:
+			link.Resolution = model.LinkUnresolved
 		}
 		links = append(links, link)
 	}
@@ -284,13 +313,39 @@ WHERE verified_run_id IS NULL AND EXISTS (
 	if err != nil {
 		return err
 	}
+	// A link is resolved when coverage verified it, or when a human recorded an
+	// active disposition for its symbol. Without the second clause a proposal
+	// containing even one deliberately skipped target could never close, and
+	// `next` would return run_implemented_tests forever.
 	_, err = tx.ExecContext(ctx, `UPDATE test_proposals SET status='verified',updated_at=?
 WHERE status='implemented' AND EXISTS (SELECT 1 FROM intended_test_links l WHERE l.proposal_id=test_proposals.id)
-AND NOT EXISTS (SELECT 1 FROM intended_test_links l WHERE l.proposal_id=test_proposals.id AND l.verified_run_id IS NULL)`, now)
+AND NOT EXISTS (
+ SELECT 1 FROM intended_test_links l
+ WHERE l.proposal_id=test_proposals.id AND l.verified_run_id IS NULL
+ AND NOT EXISTS (
+  SELECT 1 FROM dispositions d
+  WHERE d.symbol_key=l.symbol_key AND (d.expires_at IS NULL OR d.expires_at > ?)
+ )
+)`, now, now)
 	if err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// UnresolvedLinkCount is the number of links still blocking a proposal.
+func (s *Store) UnresolvedLinkCount(ctx context.Context, proposalID string) (int, error) {
+	links, err := s.ProposalLinks(ctx, proposalID)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, link := range links {
+		if link.Resolution == model.LinkUnresolved {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (s *Store) FailureContext(ctx context.Context, runID, testKey string) (model.FailureContext, error) {
