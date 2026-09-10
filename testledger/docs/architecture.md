@@ -2,49 +2,39 @@
 
 ## Boundaries
 
-`internal/app` is the application API. Both the CLI and MCP server call those
-methods directly rather than shelling out to one another.
-The store contains no agent decisions, and the Python adapter contains no
-coverage policy.
+`internal/ops` is the operation registry: every capability declared once, with
+its input struct and its handler. The CLI generates flags from that struct and
+the MCP server generates JSON Schema from the same struct, so neither transport
+describes an argument of its own and a capability cannot exist on one surface
+and be missing from the other.
 
-Files in `internal/app` and `internal/store` are grouped by what they do, one
-concern per file, each paired with a `_test.go` of the same name:
-
-| File | Concern |
-| --- | --- |
-| `app.go` | the `App` type, its lifecycle, and configuration lookups |
-| `adapter.go` | the `Discoverer` interface and the language registry |
-| `inventory.go` | source to symbol inventory, and inventory comparison |
-| `coverage.go` | which symbols count as gaps, and symbol context |
-| `attribution.go` | native coverage reports to per-symbol evidence |
-| `dispositions.go` | recorded decisions to leave a symbol untested |
-| `proposals.go` | the propose / decide / implement lifecycle |
-| `workflow.go` | `Status` and `NextActions` |
-| `runner.go` | executing a language's native test runner |
-| `results.go` | normalising each runner's result format |
-| `jobs.go` | asynchronous runs and reading their results |
-| `selection.go` | affected-test selection |
-| `mutation.go` | optional mutation signals |
-| `support.go` | identifiers, hashing, subprocess environment, paging |
-
-A language adapter satisfies `app.Discoverer`. The interface is declared in the
-consuming package and implementations are registered in one map, so adding a
-language is a registry entry rather than another arm of a type switch.
+`internal/app` is the application service beneath it. Both transports reach it
+through the registry rather than shelling out to one another.
 
 ```text
-CLI / MCP stdio
-       |
-       v
-application service ---- Python / Go / TypeScript adapters
-       |
-       v
-     SQLite ---------- immutable artifacts
+   CLI                    MCP stdio
+    └──────────┬───────────────┘
+          internal/ops              one declaration per operation
+               │
+    application service ──── Python / Go / TypeScript adapters
+               │
+            SQLite ────────── immutable artifacts
 ```
 
-The Python pytest plugin and TypeScript discovery program are embedded into the
-Go binary. Go discovery uses the standard library AST; TypeScript discovery uses
-the project's compiler API. Runner commands use fixed argument arrays and
-artifact placeholders, never shell evaluation.
+Three boundaries are load-bearing. The store contains no agent decisions. An
+adapter contains no coverage policy. And configuration, which defines what may
+be scanned and what may be run, is reachable only from the command line.
+
+Files in `internal/app` and `internal/store` are grouped one concern per file,
+each paired with a `_test.go` of the same name; each package's README lists
+them. A language adapter satisfies `app.Discoverer`, declared in the consuming
+package and registered in one map, so adding a language is a registry entry
+rather than another arm of a type switch.
+
+The Python discovery program and pytest plugin, and the TypeScript discovery
+program, are embedded into the Go binary. Go discovery uses the standard library
+AST. Runner commands are fixed argument arrays with artifact placeholders, never
+shell evaluation.
 
 ## Deterministic lifecycle
 
@@ -70,30 +60,26 @@ database.
 
 ## MCP and proposal layer
 
-Long-running tests are asynchronous because MCP hosts commonly impose tool
-timeouts. The MCP surface exposes:
+The tool surface is whatever `internal/ops` declares; [api.md](api.md) is the
+reference. Two behaviours are genuinely transport-specific:
 
-- `scan_changes`
-- `select_affected_tests`
-- `list_coverage_gaps`
-- `get_symbol_context`
-- `record_disposition`
-- `start_test_run`
-- `get_test_run`
-- `get_failure_context`
-- `record_failure_diagnosis`
-- `get_next_actions`
-- proposal submission, decisions, and implementation recording
-- `run_mutation` for explicitly configured mutation adapters
+- **Runs are asynchronous over MCP**, because hosts commonly impose tool
+  timeouts. `run_tests` returns a job id and the agent polls `get_test_run`.
+- **Decision-recording is gated.** While `allow_agent_decisions` is false,
+  `record_proposal_decision` and `record_disposition` are not advertised over
+  MCP at all, and the human runs them from the command line.
 
 Agents submit test intent, humans approve it, agents edit source, and a later
 coverage run validates the intended test-to-symbol relationship. Proposal
 targets are immutable semantic hashes, so a source change makes an unfulfilled
-proposal obsolete. Agents never receive raw SQL access.
+proposal obsolete. An intended link resolves as `verified`, `dispositioned` or
+`unresolved`; only the last blocks a proposal, which is what keeps a proposal
+containing a deliberate skip from stalling forever.
+
+Agents never receive raw SQL access.
 
 Only one MCP server should own a project database at a time. On startup it marks
 jobs left queued or running by a prior process as interrupted. Within one
 server, the configured semaphore enforces `max_parallel_runs`.
 
-The server intentionally exposes stdio only. Phase 3 does not include
-Streamable HTTP.
+The server exposes stdio only. There is no Streamable HTTP transport.

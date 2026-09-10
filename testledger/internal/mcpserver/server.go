@@ -13,7 +13,7 @@ import (
 	"github.com/danielcsee/sciterm/testledger/internal/ops"
 )
 
-const instructions = `Start with get_next_actions. Deterministic evidence comes from scans, affected-test selection, test runs, branch gaps, and mutation signals; do not infer it. Propose tests only for current symbol versions. Never call record_proposal_decision or record_disposition unless the human explicitly approved that exact action; set human_confirmed=true and preserve their reason. After writing approved tests, record exact native test IDs with record_proposal_implementation, then start_test_run and poll get_async_test_run. Fix failures and rerun until passing.`
+const instructions = `Start with get_next_actions and call it again after every decision or run; retrieve detail only for the identifiers it names. Deterministic evidence comes from scans, affected-test selection, runs, branch gaps and mutation signals -- read it, never infer it. Propose tests only for current symbol versions with propose_tests, then present the proposal to the human and stop; recording their decision is theirs to do. After writing approved tests call record_proposal_implementation with exact native test IDs, then run_tests, then poll get_test_run with the returned job_id. Read failures with failures_only=true a page at a time and load one full traceback with get_failure_context; append reasoning with record_failure_diagnosis, which never overwrites the result. State tests_to_verify means no run has judged the proposal yet; links_unverified means a run judged it and rerunning will not help -- fix or relink the named test, or ask the human for a disposition.`
 
 type Server struct {
 	app *app.App
