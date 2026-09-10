@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
 
 # node
 node_modules/
@@ -28,3 +29,10 @@ terraform.tfvars
 # .terraform.lock.hcl is deliberately NOT ignored: it pins provider versions,
 # so committing it is what makes two machines resolve the same ones.
 crash.log
+
+# local AWS CLI helper/configuration
+scripts/aws_config.sh
+
+# Testledger runtime state and local builds
+.testledger/
+testledger/bin/

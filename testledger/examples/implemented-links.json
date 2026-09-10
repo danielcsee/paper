@@ -1,0 +1,6 @@
+[
+  {
+    "symbol_key": "python:api/example.py:Example.method",
+    "test_key": "tests/test_example.py::test_method_rejects_empty_input"
+  }
+]

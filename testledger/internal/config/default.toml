@@ -1,0 +1,25 @@
+schema_version = 1
+database = ".testledger/testledger.db"
+artifact_directory = ".testledger/artifacts"
+
+[[languages]]
+name = "python"
+python = "python3"
+include = ["**/*.py"]
+exclude = [".git/**", ".testledger/**", ".venv/**", "venv/**", ".tox/**", "build/**", "dist/**", "tests/**", "test_*.py", "**/test_*.py", "**/__pycache__/**", "**/migrations/**"]
+
+[languages.test]
+runner = "pytest"
+command = ["python3", "-m", "pytest"]
+test_roots = ["tests"]
+
+[languages.coverage]
+source = ["."]
+branch = true
+minimum_line_percent = 80.0
+
+[execution]
+timeout_seconds = 600
+max_output_bytes = 1048576
+max_parallel_runs = 1
+environment_allowlist = ["PATH", "VIRTUAL_ENV", "PYTHONPATH"]

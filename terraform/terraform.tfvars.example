@@ -9,6 +9,15 @@ cloudflare_zone_id = "00000000000000000000000000000000"
 # tag that still exists, not a rebuild you hope reproduces.
 image_tag = "a1b2c3d"
 
+# Increment only when you intentionally rotate the signing key. Existing JWTs
+# become invalid after rotation.
+# jwt_secret_version = 1
+
+# GitHub Actions sets these counts only after migrations succeed. Terraform
+# creates each ECS service stopped on its first apply.
+# api_desired_count    = 1
+# worker_desired_count = 1
+
 # Account-wide budget notifications. At 100% of the configured monthly budget,
 # the shutdown automation scales both ECS services to zero and stops RDS + Neo4j.
 budget_alert_email  = "you@example.com"

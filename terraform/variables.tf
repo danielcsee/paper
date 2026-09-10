@@ -34,6 +34,17 @@ variable "image_tag" {
   description = "Image tag to deploy. Use a commit SHA, never \"latest\" -- a rollback should be a task-definition revision, not a rebuild."
 }
 
+variable "jwt_secret_version" {
+  type        = number
+  default     = 1
+  description = "Rotation counter for the JWT signing key. Increment it to generate a new key and roll the API tasks. Rotation invalidates existing JWTs."
+
+  validation {
+    condition     = var.jwt_secret_version >= 1 && floor(var.jwt_secret_version) == var.jwt_secret_version
+    error_message = "jwt_secret_version must be a positive whole number."
+  }
+}
+
 # --- sizing ---------------------------------------------------------------
 
 variable "api_cpu" {
@@ -59,8 +70,25 @@ variable "worker_memory" {
 }
 
 variable "api_desired_count" {
-  type    = number
-  default = 1
+  type        = number
+  default     = 1
+  description = "API task count GitHub Actions sets after migrations succeed. Terraform creates the service at zero and ignores runtime count changes."
+
+  validation {
+    condition     = var.api_desired_count >= 0 && floor(var.api_desired_count) == var.api_desired_count
+    error_message = "api_desired_count must be a non-negative whole number."
+  }
+}
+
+variable "worker_desired_count" {
+  type        = number
+  default     = 1
+  description = "Worker task count GitHub Actions sets after migrations succeed. Terraform creates the service at zero and ignores runtime count changes."
+
+  validation {
+    condition     = var.worker_desired_count >= 0 && floor(var.worker_desired_count) == var.worker_desired_count
+    error_message = "worker_desired_count must be a non-negative whole number."
+  }
 }
 
 variable "db_instance_class" {
@@ -139,6 +167,7 @@ variable "monthly_budget_limit" {
 variable "budget_alert_email" {
   type        = string
   description = "Email address for warnings and the automatic shutdown notification."
+  sensitive   = true
 
   validation {
     condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.budget_alert_email))

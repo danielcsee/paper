@@ -41,10 +41,12 @@ resource "aws_ecs_task_definition" "api" {
   family                   = "${local.name}-api"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = var.api_cpu
-  memory                   = var.api_memory
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.api_task.arn
+  # The workflow keeps the previous revision as its rollback target.
+  skip_destroy       = true
+  cpu                = var.api_cpu
+  memory             = var.api_memory
+  execution_role_arn = aws_iam_role.task_execution.arn
+  task_role_arn      = aws_iam_role.api_task.arn
 
   runtime_platform {
     operating_system_family = local.runtime.operating_system_family
@@ -68,6 +70,12 @@ resource "aws_ecs_task_definition" "api" {
     portMappings = [{ containerPort = 8000, protocol = "tcp" }]
 
     environment = concat(local.common_env, [
+      # This non-secret marker creates a new task definition revision whenever
+      # the JWT key is deliberately rotated.
+      {
+        name  = "JWT_SECRET_VERSION"
+        value = tostring(var.jwt_secret_version)
+      },
       # The API never opens a Neo4j driver, so it is not given a route to one.
     ])
 
@@ -75,7 +83,7 @@ resource "aws_ecs_task_definition" "api" {
       local.db_secret,
       # The API is the only task that signs tokens. The worker is deliberately
       # not given this -- see api/auth/config.py.
-      { name = "JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt.arn },
+      { name = "JWT_SECRET", valueFrom = aws_secretsmanager_secret_version.jwt.arn },
     ]
 
     logConfiguration = {
@@ -93,8 +101,19 @@ resource "aws_ecs_service" "api" {
   name            = "${local.name}-api"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
-  desired_count   = var.api_desired_count
-  launch_type     = "FARGATE"
+  # GitHub Actions starts the first revision only after migrations succeed.
+  # Later counts and revisions are release state, not infrastructure state.
+  desired_count = 0
+  launch_type   = "FARGATE"
+
+  lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
@@ -129,6 +148,7 @@ resource "aws_ecs_task_definition" "worker" {
   family                   = "${local.name}-worker"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
+  skip_destroy             = true
   cpu                      = var.worker_cpu
   memory                   = var.worker_memory
   execution_role_arn       = aws_iam_role.task_execution.arn
@@ -180,8 +200,17 @@ resource "aws_ecs_service" "worker" {
   name            = "${local.name}-worker"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.worker.arn
-  desired_count   = 1
+  desired_count   = 0
   launch_type     = "FARGATE"
+
+  lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = aws_subnet.private[*].id

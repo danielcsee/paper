@@ -1,0 +1,24 @@
+schema_version = 1
+database = ".testledger/testledger.db"
+artifact_directory = ".testledger/artifacts"
+
+[[languages]]
+name = "python"
+python = ".venv/bin/python"
+include = ["api/**/*.py"]
+exclude = ["api/db/migrations/**", "**/__pycache__/**"]
+
+[languages.test]
+runner = "pytest"
+command = [".venv/bin/python", "-m", "pytest"]
+test_roots = ["tests"]
+
+[languages.coverage]
+source = ["api"]
+branch = true
+minimum_line_percent = 80.0
+
+[execution]
+timeout_seconds = 600
+max_output_bytes = 1048576
+environment_allowlist = ["DATABASE_URL", "REDIS_URL", "PATH", "VIRTUAL_ENV"]

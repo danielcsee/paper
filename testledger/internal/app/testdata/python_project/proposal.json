@@ -1,0 +1,13 @@
+{
+  "targets": ["python:src/mathy.py:add"],
+  "rationale": "Verify deterministic addition behavior.",
+  "created_by": "phase2-e2e",
+  "cases": [
+    {
+      "name": "test_add",
+      "test_file": "tests/test_mathy.py",
+      "description": "Add two positive integers.",
+      "assertions": ["The sum is five."]
+    }
+  ]
+}

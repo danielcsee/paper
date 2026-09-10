@@ -12,7 +12,7 @@ output "ecr_repository_url" {
 }
 
 output "jwt_secret_arn" {
-  description = "Empty on creation. Put a value in it before the API will start."
+  description = "JWT signing secret generated and populated securely during terraform apply."
   value       = aws_secretsmanager_secret.jwt.arn
 }
 
@@ -21,10 +21,54 @@ output "migrate_command" {
   value       = <<-EOT
     aws ecs run-task \
       --cluster ${aws_ecs_cluster.main.name} \
-      --task-definition ${aws_ecs_task_definition.migrate.family} \
+      --task-definition ${aws_ecs_task_definition.migrate.arn} \
       --launch-type FARGATE \
       --network-configuration 'awsvpcConfiguration={subnets=[${join(",", aws_subnet.private[*].id)}],securityGroups=[${aws_security_group.worker.id}],assignPublicIp=DISABLED}'
   EOT
+}
+
+# Release coordinates are outputs rather than GitHub environment values: each
+# apply can register a new immutable task-definition revision.
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.main.name
+}
+
+output "api_service_name" {
+  value = aws_ecs_service.api.name
+}
+
+output "worker_service_name" {
+  value = aws_ecs_service.worker.name
+}
+
+output "api_task_definition_arn" {
+  value = aws_ecs_task_definition.api.arn
+}
+
+output "worker_task_definition_arn" {
+  value = aws_ecs_task_definition.worker.arn
+}
+
+output "migrate_task_definition_arn" {
+  value = aws_ecs_task_definition.migrate.arn
+}
+
+output "migration_network_configuration" {
+  value = jsonencode({
+    awsvpcConfiguration = {
+      subnets        = aws_subnet.private[*].id
+      securityGroups = [aws_security_group.worker.id]
+      assignPublicIp = "DISABLED"
+    }
+  })
+}
+
+output "api_release_desired_count" {
+  value = var.api_desired_count
+}
+
+output "worker_release_desired_count" {
+  value = var.worker_desired_count
 }
 
 output "neo4j_private_ip" {

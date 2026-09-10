@@ -1,0 +1,23 @@
+schema_version = 1
+database = ".testledger/testledger.db"
+artifact_directory = ".testledger/artifacts"
+
+[[languages]]
+name = "python"
+python = "python3"
+include = ["src/**/*.py"]
+exclude = []
+
+[languages.test]
+command = ["python3", "-m", "pytest"]
+test_roots = ["tests"]
+
+[languages.coverage]
+source = ["src"]
+branch = true
+minimum_line_percent = 80.0
+
+[execution]
+timeout_seconds = 30
+max_output_bytes = 65536
+environment_allowlist = ["PATH"]

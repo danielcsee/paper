@@ -1,0 +1,302 @@
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - stage
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, migrate, and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: deploy
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_region: ${{ vars.AWS_REGION }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+      TF_VAR_monthly_budget_limit: ${{ vars.MONTHLY_BUDGET_LIMIT }}
+      TF_VAR_budget_alert_email: ${{ secrets.BUDGET_ALERT_EMAIL }}
+      TF_VAR_image_tag: ${{ github.sha }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Configure temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.16.1
+          terraform_wrapper: false
+
+      - name: Initialize and validate Terraform
+        working-directory: terraform
+        run: |
+          terraform init -input=false
+          terraform validate
+
+      - name: Refuse to override a budget shutdown
+        run: |
+          if latch="$(aws ssm get-parameter \
+              --name /sciterm/budget-shutdown \
+              --query 'Parameter.Value' \
+              --output text 2>latch-error.txt)"; then
+            :
+          elif grep -q ParameterNotFound latch-error.txt; then
+            # Expected on the first deployment, before Terraform creates it.
+            latch="false"
+          else
+            cat latch-error.txt >&2
+            exit 1
+          fi
+
+          if [[ "$latch" == "true" ]]; then
+            echo "The budget shutdown latch is set; refusing to redeploy." >&2
+            exit 1
+          fi
+
+      - name: Read ECR repository URL
+        id: ecr
+        working-directory: terraform
+        run: echo "repository=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this commit is already in ECR
+        id: image
+        env:
+          ECR_REPOSITORY_URL: ${{ steps.ecr.outputs.repository }}
+        run: |
+          repository_name="${ECR_REPOSITORY_URL#*/}"
+          if aws ecr describe-images \
+              --repository-name "$repository_name" \
+              --image-ids "imageTag=$GITHUB_SHA" \
+              >/dev/null 2>ecr-error.txt; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q ImageNotFoundException ecr-error.txt; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat ecr-error.txt >&2
+            exit 1
+          fi
+
+      - name: Log in to Amazon ECR
+        if: ${{ steps.image.outputs.exists != 'true' }}
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push immutable image
+        if: ${{ steps.image.outputs.exists != 'true' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.repository }}:${{ github.sha }}
+          build-args: |
+            SCITERM_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Capture the current release for rollback
+        id: previous
+        run: |
+          if services="$(aws ecs describe-services \
+              --cluster sciterm \
+              --services sciterm-api sciterm-worker 2>service-error.txt)"; then
+            :
+          elif grep -q ClusterNotFoundException service-error.txt; then
+            # Expected on the first deployment.
+            services='{"services":[]}'
+          else
+            cat service-error.txt >&2
+            exit 1
+          fi
+
+          api_task="$(jq -r '.services[]? | select(.serviceName == "sciterm-api") | .taskDefinition' <<< "$services")"
+          api_count="$(jq -r '.services[]? | select(.serviceName == "sciterm-api") | .desiredCount' <<< "$services")"
+          worker_task="$(jq -r '.services[]? | select(.serviceName == "sciterm-worker") | .taskDefinition' <<< "$services")"
+          worker_count="$(jq -r '.services[]? | select(.serviceName == "sciterm-worker") | .desiredCount' <<< "$services")"
+
+          echo "api_task=$api_task" >> "$GITHUB_OUTPUT"
+          echo "api_count=${api_count:-0}" >> "$GITHUB_OUTPUT"
+          echo "worker_task=$worker_task" >> "$GITHUB_OUTPUT"
+          echo "worker_count=${worker_count:-0}" >> "$GITHUB_OUTPUT"
+
+      # Terraform owns the service configuration and registers immutable task
+      # definitions. It deliberately ignores their live revision and count.
+      - name: Apply infrastructure and register task definitions
+        working-directory: terraform
+        run: terraform apply -auto-approve -input=false
+
+      - name: Read exact release coordinates
+        id: release
+        working-directory: terraform
+        run: |
+          echo "cluster=$(terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "api_service=$(terraform output -raw api_service_name)" >> "$GITHUB_OUTPUT"
+          echo "worker_service=$(terraform output -raw worker_service_name)" >> "$GITHUB_OUTPUT"
+          echo "api_task=$(terraform output -raw api_task_definition_arn)" >> "$GITHUB_OUTPUT"
+          echo "worker_task=$(terraform output -raw worker_task_definition_arn)" >> "$GITHUB_OUTPUT"
+          echo "migrate_task=$(terraform output -raw migrate_task_definition_arn)" >> "$GITHUB_OUTPUT"
+          echo "migration_network=$(terraform output -raw migration_network_configuration)" >> "$GITHUB_OUTPUT"
+          echo "api_count=$(terraform output -raw api_release_desired_count)" >> "$GITHUB_OUTPUT"
+          echo "worker_count=$(terraform output -raw worker_release_desired_count)" >> "$GITHUB_OUTPUT"
+          echo "budget_latch=$(terraform output -raw budget_shutdown_latch)" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migrations
+        id: migrate
+        env:
+          CLUSTER: ${{ steps.release.outputs.cluster }}
+          MIGRATE_TASK: ${{ steps.release.outputs.migrate_task }}
+          MIGRATION_NETWORK: ${{ steps.release.outputs.migration_network }}
+        run: |
+          migration_json="$(aws ecs run-task \
+            --cluster "$CLUSTER" \
+            --task-definition "$MIGRATE_TASK" \
+            --launch-type FARGATE \
+            --network-configuration "$MIGRATION_NETWORK")"
+
+          if [[ "$(jq '.failures | length' <<< "$migration_json")" != "0" ]]; then
+            jq '.failures' <<< "$migration_json" >&2
+            exit 1
+          fi
+
+          task_arn="$(jq -er '.tasks[0].taskArn' <<< "$migration_json")"
+          echo "task_arn=$task_arn" >> "$GITHUB_OUTPUT"
+
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$task_arn"
+
+          exit_code="$(aws ecs describe-tasks \
+            --cluster "$CLUSTER" \
+            --tasks "$task_arn" \
+            --query 'tasks[0].containers[?name==`migrate`].exitCode | [0]' \
+            --output text)"
+
+          if [[ "$exit_code" != "0" ]]; then
+            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task_arn"
+            echo "Migration task failed with exit code $exit_code." >&2
+            exit 1
+          fi
+
+      - name: Recheck budget shutdown before cutover
+        env:
+          BUDGET_LATCH: ${{ steps.release.outputs.budget_latch }}
+        run: |
+          latch="$(aws ssm get-parameter \
+            --name "$BUDGET_LATCH" \
+            --query 'Parameter.Value' \
+            --output text)"
+          if [[ "$latch" == "true" ]]; then
+            echo "The budget shutdown latch was set during deployment; refusing to start services." >&2
+            exit 1
+          fi
+
+      # These explicit updates are the release boundary: they happen only after
+      # the migration task exits successfully.
+      - name: Deploy API and worker task definitions
+        id: cutover
+        env:
+          CLUSTER: ${{ steps.release.outputs.cluster }}
+          API_SERVICE: ${{ steps.release.outputs.api_service }}
+          API_TASK: ${{ steps.release.outputs.api_task }}
+          API_COUNT: ${{ steps.release.outputs.api_count }}
+          WORKER_SERVICE: ${{ steps.release.outputs.worker_service }}
+          WORKER_TASK: ${{ steps.release.outputs.worker_task }}
+          WORKER_COUNT: ${{ steps.release.outputs.worker_count }}
+        run: |
+          echo "started=true" >> "$GITHUB_OUTPUT"
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$API_SERVICE" \
+            --task-definition "$API_TASK" \
+            --desired-count "$API_COUNT" >/dev/null
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$WORKER_SERVICE" \
+            --task-definition "$WORKER_TASK" \
+            --desired-count "$WORKER_COUNT" >/dev/null
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER" \
+            --services "$API_SERVICE" "$WORKER_SERVICE"
+
+      - name: Verify deployed version
+        env:
+          APP_URL: https://${{ vars.DOMAIN_NAME }}
+        run: |
+          for attempt in {1..20}; do
+            health="$(curl --fail --silent --show-error "$APP_URL/health" || true)"
+            version="$(jq -r '.version // empty' <<< "$health")"
+            if [[ "$version" == "$GITHUB_SHA" ]]; then
+              echo "Deployed $GITHUB_SHA successfully."
+              exit 0
+            fi
+            echo "Health check attempt $attempt did not report $GITHUB_SHA yet."
+            sleep 15
+          done
+
+          echo "Deployment never reported the expected version." >&2
+          exit 1
+
+      - name: Roll back a failed cutover
+        if: ${{ failure() && steps.cutover.outputs.started == 'true' }}
+        env:
+          CLUSTER: ${{ steps.release.outputs.cluster }}
+          API_SERVICE: ${{ steps.release.outputs.api_service }}
+          PREVIOUS_API_TASK: ${{ steps.previous.outputs.api_task }}
+          PREVIOUS_API_COUNT: ${{ steps.previous.outputs.api_count }}
+          WORKER_SERVICE: ${{ steps.release.outputs.worker_service }}
+          PREVIOUS_WORKER_TASK: ${{ steps.previous.outputs.worker_task }}
+          PREVIOUS_WORKER_COUNT: ${{ steps.previous.outputs.worker_count }}
+        run: |
+          rollback_service() {
+            local service="$1"
+            local previous_task="$2"
+            local previous_count="$3"
+            local args=(
+              ecs update-service
+              --cluster "$CLUSTER"
+              --service "$service"
+              --desired-count "${previous_count:-0}"
+            )
+
+            if [[ -n "$previous_task" ]]; then
+              args+=(--task-definition "$previous_task")
+            fi
+
+            aws "${args[@]}" >/dev/null
+          }
+
+          rollback_service "$API_SERVICE" "$PREVIOUS_API_TASK" "$PREVIOUS_API_COUNT"
+          rollback_service "$WORKER_SERVICE" "$PREVIOUS_WORKER_TASK" "$PREVIOUS_WORKER_COUNT"
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER" \
+            --services "$API_SERVICE" "$WORKER_SERVICE"

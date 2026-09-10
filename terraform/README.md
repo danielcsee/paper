@@ -5,8 +5,9 @@ an ALB with TLS, and a migration task. Roughly $135/month idle — see the
 deployment plan for where that goes and how little it moves with usage.
 
 State lives in S3 with **native S3 locking** (`use_lockfile`), not a DynamoDB
-table. Terraform 1.10 added locking through S3 conditional writes and 1.11
-deprecated the DynamoDB argument, so `required_version` is `>= 1.10`.
+table. The application stack requires Terraform `>= 1.11` so it can generate
+the JWT signing key ephemerally and write it to Secrets Manager without putting
+the value in the plan or state. The bootstrap stack still supports 1.10+.
 
 ## Layout
 
@@ -21,7 +22,7 @@ deprecated the DynamoDB argument, so `required_version` is `>= 1.10`.
 | `alb.tf` | Cloudflare DNS, ACM certificate, load balancer, listeners. |
 | `iam.tf` `secrets.tf` `waf.tf` `ecr.tf` | Supporting resources. |
 
-## First apply
+## Bootstrap and deployment
 
 Cloudflare remains the authoritative DNS provider. Terraform uses a narrowly
 scoped API token to create the app CNAME and AWS ACM validation CNAME, so DNS
@@ -32,13 +33,8 @@ cd terraform/bootstrap && terraform init && terraform apply   # state bucket
 # paste the backend_config output into ../versions.tf, uncomment, then:
 cd .. && terraform init
 
-cp terraform.tfvars.example terraform.tfvars   # fill in domain and image tag
-
-# Create a Cloudflare API token with DNS Edit access to this zone. Export it;
-# never put the token in a .tf or .tfvars file.
-export CLOUDFLARE_API_TOKEN="replace-with-your-token"
-
-terraform apply
+# The image destination must exist before the first GitHub build can push.
+terraform apply -target=aws_ecr_repository.app
 ```
 
 Set `domain_name` to the full hostname (for example, `app.example.com`) and
@@ -48,26 +44,15 @@ on AWS, and the existing WAF source-IP rate limit continues to see visitors'
 real IP addresses. If a DNS record with the same app hostname already exists,
 delete it or import it before applying so Terraform does not collide with it.
 
-Then the parts Terraform deliberately does not do:
+The `deploy` GitHub environment supplies the AWS and Terraform variables and
+the Cloudflare token documented in `.github/workflows/deploy.yml`. A manual
+dispatch or a push to `stage` builds the ARM64 image, tags it with the commit SHA,
+pushes it to ECR, applies Terraform, runs migrations, and only then updates the
+services. Terraform creates a service at zero tasks on its first apply, so the
+first application process cannot start against an unmigrated database.
 
-```bash
-# The signing key. Terraform creates an empty secret; the value never passes
-# through it, so it never lands in state.
-aws secretsmanager put-secret-value \
-  --secret-id "$(terraform output -raw jwt_secret_arn)" \
-  --secret-string "$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-
-# Build, push, migrate. The image now carries alembic.ini, which is what makes
-# the migration task possible.
-docker build --platform linux/arm64 \
-  --build-arg SCITERM_VERSION=$(git rev-parse --short HEAD) \
-  -t "$(terraform output -raw ecr_repository_url):$(git rev-parse --short HEAD)" .
-# ...docker push, then:
-terraform output -raw migrate_command | bash
-
-# Force the services onto the new image
-aws ecs update-service --cluster sciterm --service sciterm-api --force-new-deployment
-```
+Terraform also creates the JWT signing key before registering the API task
+definition. Its value is never printed or stored in Terraform state.
 
 Finally, bootstrap the admin account and issue codes. No secret is provisioned
 for this: the server already trusts the public key in `api/authorized_keys/`.
@@ -110,7 +95,19 @@ rate limit starts to bite.
 **Datastore passwords are in state; the signing key is not.** Terraform has to
 know the database password to create the database, so it lands in state — which
 is why the bucket is encrypted, versioned and blocked from public access. The
-signing key has no such excuse, so Terraform only creates the empty container.
+signing key is generated ephemerally and passed to Secrets Manager through a
+write-only argument. Increment `jwt_secret_version` to rotate it and register a
+new API task definition revision. Rotation invalidates all existing JWTs.
+
+**Terraform defines services; GitHub releases them.** Terraform owns each ECS
+service's infrastructure but ignores its live task-definition revision and
+desired count. GitHub captures the current release, applies infrastructure,
+runs the exact migration task revision, and checks its exit code before moving
+the services to the exact API and worker revisions. Failed cutovers roll back
+to the captured revisions and counts; ECS deployment circuit breakers provide
+a second rollback layer. Previous task definitions remain active so that exact
+rollback target can still launch replacement tasks. Schema migrations must
+remain compatible with the old application while that old revision stays live.
 
 ## Tearing down
 
@@ -119,9 +116,13 @@ deletion protection off, so `terraform destroy` completes unattended. That
 suits applying before interviews and destroying after. Set it to `false` the
 moment the database holds anything you would miss. The state bucket in
 `bootstrap/` has `prevent_destroy` and survives either way.
+API and worker task-definition revisions also remain registered as zero-cost
+rollback metadata and can be deregistered manually after the application is
+destroyed.
 
-## Not yet here
+## CI/CD
 
-CI/CD. The pipeline is build → push → migrate → update services, and the
-migrate step is the one that must not be skipped. There is also no automated
-test suite in this repository for CI to run.
+`.github/workflows/deploy.yml` serializes deployments and runs build → push →
+Terraform apply → migrate → service cutover → health verification. It refuses
+to run while the budget shutdown latch is set. There is not yet an automated
+application test suite for CI to run before building.

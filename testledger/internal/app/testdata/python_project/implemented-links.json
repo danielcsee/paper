@@ -1,0 +1,6 @@
+[
+  {
+    "symbol_key": "python:src/mathy.py:add",
+    "test_key": "tests/test_mathy.py::test_add"
+  }
+]
