@@ -179,18 +179,37 @@ def test_source_database_prefers_explicit_over_everything() -> None:
     assert source_database("672", "Gene", siblings, "  trimmed  ") == "trimmed"
 
 
-def test_source_database_rejects_a_blank_explicit_database() -> None:
-    """A whitespace-only database is a claim of provenance that is not one.
+def test_source_database_treats_every_spelling_of_absent_alike() -> None:
+    """None, "" and "   " all mean upstream stated nothing: fall through.
 
-    Note the asymmetry with `""`: an empty string is falsy and falls through to
-    inference, whereas `" "` is truthy and resolves to None, rejecting the
-    concept. Both are pinned because the difference is invisible at the call
-    site.
+    `explicit` is `Annotation.database` off PubTator's `infons`, where a blank
+    is indistinguishable from a missing key. Rejecting on a blank would drop a
+    concept the sibling annotation, the type or the prefix could still ground,
+    and would do it only for one of the three spellings.
     """
     siblings = {"672": "ncbi_gene"}
+    blanks: list[Optional[str]] = [None, "", " ", "\t", "   \n "]
 
-    assert source_database("672", "Gene", siblings, " ") is None
-    assert source_database("672", "Gene", siblings, "") == "ncbi_gene"
+    for explicit in blanks:
+        assert source_database("672", "Gene", siblings, explicit) == "ncbi_gene", repr(explicit)
+
+
+def test_source_database_falls_through_a_blank_rather_than_rejecting() -> None:
+    """The fall-through must reach every later step, not just the sibling map.
+
+    A blank used to return None outright, so nothing below it ran. These are
+    the cases that had no sibling entry to save them.
+    """
+    cases: list[tuple[str, Optional[str], Optional[str]]] = [
+        # identifier, kind, expected -- with no sibling annotations at all
+        ("9606", "Species", "ncbi_taxonomy"),
+        ("672", "Gene", "ncbi_gene"),
+        ("MESH:D001943", None, "ncbi_mesh"),
+        ("UNKNOWN:1", None, None),
+    ]
+
+    for identifier, kind, expected in cases:
+        assert source_database(identifier, kind, {}, " ") == expected, identifier
 
 
 def test_source_database_tables_cover_the_bare_id_types() -> None:
