@@ -17,6 +17,9 @@ One file per module under test, named for it:
 | `test_auth_passwords.py` | `api/auth/passwords.py` — PBKDF2 hashing and verification |
 | `test_pb_models.py` | `api/pb_client/models.py` — PubTator identifier normalisation |
 | `test_eu_naming.py` | `api/eu_client/naming.py` — the no-op and early-return paths |
+| `test_persist.py` | `api/ingestion/persist.py` — the pure provenance and date rules |
+| `test_ncbi_http.py` | `api/ncbi/http.py` — `RateLimiter`, the in-process 3/s budget |
+| `test_auth_throttle.py` | `api/auth/throttle.py` — the pre-authentication sliding window |
 
 `conftest.py` puts the repository root on `sys.path`; the `api` package is run
 from the checkout rather than installed.
