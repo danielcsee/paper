@@ -372,7 +372,7 @@ def concept_databases(paper: PaperResponse) -> dict[str, str]:
 
 
 def source_database(
-    identifier: str, kind: Optional[str], databases: dict[str, str], explicit: object = None
+    identifier: str, kind: Optional[str], databases: dict[str, str], explicit: Optional[str] = None
 ) -> Optional[str]:
     """Where this concept came from, or None if that cannot be established.
 
@@ -380,9 +380,17 @@ def source_database(
     same paper said about this id or its namespace, the type (Gene and Species
     are the only kinds whose ids arrive bare), and finally the namespace the id
     carries. None means the concept is rejected — see `upsert_entities`.
+
+    `explicit` is `Annotation.database`, straight off PubTator's `infons`, so
+    it is absent far more often than it is present. Absent has three spellings
+    there — None, "" and "   " — and all three mean the same thing: upstream
+    stated nothing, so the cascade below continues. A blank is not a failed
+    claim of provenance, and must not reject a concept a sibling annotation or
+    the type could still ground.
     """
-    if explicit:
-        return str(explicit).strip() or None
+    stated = (explicit or "").strip()
+    if stated:
+        return stated
     prefix = identifier.split(":", 1)[0] if ":" in identifier else ""
     return (
         databases.get(identifier)
@@ -406,7 +414,9 @@ def unnamed_concepts(paper: PaperResponse) -> dict[str, str]:
     databases = concept_databases(paper)
     concepts: dict[str, str] = {}
 
-    def consider(raw: object, name: Optional[str], kind: Optional[str], database=None) -> None:
+    def consider(
+        raw: object, name: Optional[str], kind: Optional[str], database: Optional[str] = None
+    ) -> None:
         text = str(raw).strip() if raw is not None else ""
         source = source_database(text, kind, databases, database)
         identifier = normalise_identifier(raw, source)
@@ -462,7 +472,9 @@ def upsert_entities(
 
     databases = concept_databases(paper)
 
-    def remember(raw: object, name: Optional[str], kind: Optional[str], database=None) -> bool:
+    def remember(
+        raw: object, name: Optional[str], kind: Optional[str], database: Optional[str] = None
+    ) -> bool:
         nonlocal no_provenance
         text = str(raw).strip() if raw is not None else ""
         source = source_database(text, kind, databases, database)
